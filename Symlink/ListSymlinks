@@ -1,0 +1,14 @@
+#!/bin/bash
+d=$(dirname "$NAUTILUS_SCRIPT_SELECTED_FILE_PATHS")
+f=$(basename "$NAUTILUS_SCRIPT_SELECTED_FILE_PATHS")
+list=$(find -L $d -samefile "$f")
+
+for i in $list; do
+  test -L "$i" && t="lnk" || t="target"
+  flist+=" $(basename $i) $t"
+done
+
+sel=$(zenity --list --title "Symlinks to $f" --column "file" --column "link" $flist)
+#zenity --info --title "Selected" --text "$sel"
+test -z "$sel" && exit 0
+nautilus $sel

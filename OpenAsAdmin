@@ -1,0 +1,4 @@
+#! /bin/bash
+for file in $NAUTILUS_SCRIPT_SELECTED_FILE_PATHS; do
+ nautilus admin://$file &
+done

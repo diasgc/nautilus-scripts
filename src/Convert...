@@ -1,10 +1,61 @@
 #! /bin/bash
 # diasgc 2023 April
-#
+
+debug2file=false
+
+x265presets="ultrafast|superfast|veryfast|faster|fast|medium|slow|slower|veryslow|placebo"
+x265tunes="psnr|ssim|grain|zerolatency|fastdecode"
+
+if $debug2file; then
 # debug to ~/convert.log
-# exec 22>$HOME/convert.log
-# BASH_XTRACEFD=22
-# set -x
+  exec 22>$HOME/convert.log
+  BASH_XTRACEFD=22
+  set -x
+fi
+
+# range <from> <to> <step> <delim>
+rangeInt(){
+  out=
+  for ((r=$1; r <$2 0; r=r+$3)); do out="$out$4$r" ; done
+  echo "${out:1}"
+}
+
+heicopts(){
+  optKeys=('-L ' '-p quality=' '-p preset=' '-p tune=' '-p tu-intra-depth=' '-p complexity=' '-p chroma=')
+  opts=$(zenity zenity --width=500 --forms --title "x265" \
+    --text "HEIC x265 Codec Options" \
+    --add-combo "Quality" --combo-values "default|$(rangeInt 10 100 2 '|')|Lossless" \
+    --add-combo "Preset" --combo-values "default|${x265presets}" \
+    --add-combo "Tune" --combo-values "default|${x265tunes}" \
+    --add-combo "TU intra depth" --combo-values "default|1|2|3|4" \
+    --add-combo "Complexity" --combo-values "default|$(rangeInt 10 100 2 '|')" \
+    --add-combo "Chroma" --combo-values "default|420|422|444" \
+  )
+  
+  optval=($(sed 's/|/\n/g' <<< $opts))
+  out=
+  test "x${optVal[0]}" == "xLossless" && out="-L " && ${optVal[0]}="default"
+  for i in "${!optVal[@]}"; do
+    test "x${optVal[$i]}" == "xdefault" || out="$out ${optKeys[$i]}${optVal[$i]}"
+  done
+  echo $out
+}
+
+x265opts(){
+  optKeys=('-preset' '-tune' '-crf')
+  opts=$(zenity zenity --width=500 --forms --title "x265" \
+    --text "x265 Codec Options" \
+    --add-combo "Preset" --combo-values ${x265presets} \
+    --add-combo "Tune" --combo-values ${x265tunes} \
+    --add-combo "CRF" --combo-values "default|$(rangeInt 0 50 2 '|')" \
+  )
+  optval=($(sed 's/|/\n/g' <<< $opts))
+  out=
+  for i in "${!optVal[@]}"; do
+    test "x${optVal[$i]}" == "xdefault" || out="$out ${optKeys[$i]} ${optVal[$i]}"
+  done
+  echo $out
+}
 
 SAVEIFS=$IFS
 IFS=$'\n'
@@ -26,46 +77,11 @@ esac
 op=$(zenity --list --radiolist --title "Convert to" --text "$mime" --column "" --column "Format" ${ops[@]})
 # ql=$(zenity --scale --text="Quality" --min-value=-1 --max-value=100 --value=-1)
 
-heicopts(){
-  optKeys=('-L ' '-p quality=' '-p preset=' '-p tune=' '-p tu-intra-depth=' '-p complexity=' '-p chroma=')
-  opts=$(zenity zenity --width=500 --forms --title "x265" \
-    --text "HEIC x265 Codec Options" \
-    --add-combo "Quality" --combo-values "default|10|20|30|40|50|60|65|70|75|80|85|90|95|98|Lossless" \
-    --add-combo "Preset" --combo-values "default|ultrafast|superfast|veryfast|faster|fast|medium|slow|slower|veryslow|placebo" \
-    --add-combo "Tune" --combo-values "default|psnr|ssim|grain|zerolatency|fastdecode" \
-    --add-combo "TU intra depth" --combo-values "default|1|2|3|4" \
-    --add-combo "Complexity" --combo-values "default|10|20|30|40|50|60|70|80|90|100" \
-    --add-combo "Chroma" --combo-values "default|420|422|444" \
-  )
-  
-  optval=($(sed 's/|/\n/g' <<< $opts))
-  out=
-  test "x${optVal[0]}" == "xLossless" && out="-L " && ${optVal[0]}="default"
-  for i in "${!optVal[@]}"; do
-    test "x${optVal[$i]}" == "xdefault" || out="$out ${optKeys[$i]}${optVal[$i]}"
-  done
-  echo $out
-}
 
-x265opts(){
-  optKeys=('-preset' '-tune' '-crf')
-  opts=$(zenity zenity --width=500 --forms --title "x265" \
-    --text "x265 Codec Options" \
-    --add-combo "Preset" --combo-values "default|ultrafast|superfast|veryfast|faster|fast|medium|slow|slower|veryslow|placebo" \
-    --add-combo "Tune" --combo-values "default|psnr|ssim|grain|zerolatency|fastdecode" \
-    --add-combo "CRF" --combo-values "default|10|14|18|22|24|26|28|30|32|34|36|40|44|48" \
-  )
-  optval=($(sed 's/|/\n/g' <<< $opts))
-  out=
-  for i in "${!optVal[@]}"; do
-    test "x${optVal[$i]}" == "xdefault" || out="$out ${optKeys[$i]} ${optVal[$i]}"
-  done
-  echo $out
-}
 
 case "$op" in
-  heic) cmd="do-heif"; ffEncoder="$(heicopts)"; ffSufix=""; ffFormat="heic"; test "x$ql" -gt "x0" && ffEncoder="$ffEncoder -q $ql";;
-  avif) cmd="do-heif"; ffEncoder="-A"; ffSufix=""; ffFormat="avif"; test "x$ql" -gt "x0" && ffEncoder="$ffEncoder -q $ql";;
+  heic) cmd="do-heif"; ffEncoder="$(heicopts)"; ffSufix=""; ffFormat="heic";;
+  avif) cmd="do-heif"; ffEncoder="-A"; ffSufix=""; ffFormat="avif";;
   hevc) cmd="do-ffmpeg"; ffEncoder="-c:v libx265 $(x265opts)"; ffSufix="-HEVC"; ffFormat="mp4";;
   h264) cmd="do-ffmpeg"; ffEncoder="-c:v libx264"; ffSufix="-H264"; ffFormat="mp4";;
   xvid) cmd="do-ffmpeg"; ffEncoder="-c:v libxvid"; ffSufix="-xvid"; ffFormat="mp4";;
@@ -75,11 +91,6 @@ case "$op" in
   ogg)  cmd="do-ffmpeg"; ffEncoder="-c:a libogg"; ffSufix=""; ffFormat="ogg";;
   opus) cmd="do-ffmpeg"; ffEncoder="-c:a libopus"; ffSufix="-opus"; ffFormat="ogg";;
   *) cmd="echo";;
-esac
-
-case "$ql" in
-  50) ;;
-  *) cmd="$cmd -q $ql";;
 esac
 
 affProgress(){

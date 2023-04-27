@@ -1,7 +1,7 @@
 #! /bin/bash
 # diasgc 2023 April
 
-debug2file=true
+debug2file=false
 
 x265presets="ultrafast|superfast|veryfast|faster|fast|medium|slow|slower|veryslow|placebo"
 x265tunes="psnr|ssim|grain|zerolatency|fastdecode"
@@ -13,7 +13,7 @@ if $debug2file; then
   set -x
 fi
 
-# range <from> <to> <step> <delim>
+# usage: range <from> <to> <step> <delim>
 rangeInt(){
   out=
   for (( r=$1; r<$2 ; r=r+$3 )); do out="$out$4$r" ; done

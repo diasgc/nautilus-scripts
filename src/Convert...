@@ -16,7 +16,7 @@ fi
 # range <from> <to> <step> <delim>
 rangeInt(){
   out=
-  for ((r=$1; r <$2 0; r=r+$3)); do out="$out$4$r" ; done
+  for (( r=$1; r<$2 ; r=r+$3 )); do out="$out$4$r" ; done
   echo "${out:1}"
 }
 

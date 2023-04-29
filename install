@@ -6,5 +6,12 @@
 # NAUTILUS_SCRIPT_CURRENT_URI            current location
 # NAUTILUS_SCRIPT_WINDOW_GEOMETRY        position and size of current window
 
-cp -r src/* ~/.local/share/nautilus/scripts/
+# cp -r src/* ~/.local/share/nautilus/scripts/
 # ln -s src/Convert... ~/.local/share/nautilus/scripts/Convert...
+nautDir="$HOME/.local/share/nautilus/scripts/"
+srcDir="$(pwd)/src/"
+for f in $srcDir/*; do
+    echo "$f"
+    fn=$(basename "$f")
+    ln -s "$f" "$nautDir/$fn"
+done

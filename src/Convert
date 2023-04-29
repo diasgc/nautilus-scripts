@@ -1,0 +1,317 @@
+#! /bin/bash
+#Title=Convert
+# diasgc 2023 April
+
+# debug script to ~/convert.log
+if $debug2file; then  
+  exec 22>$HOME/convert.log &>>$HOME/convert.log
+  BASH_XTRACEFD=22
+  set -x
+fi
+
+test -z "$(command -v zenity)" && exit 1
+
+err(){
+  zenity --error --text "<b>$1 is not installed</b>\n\nPlease run sudo apt install $1"
+  exit 1
+}
+
+test -z "$(command -v ffmpeg)" && err "ffmpeg"
+test -z "$(command -v heif-enc)" && err "libheif-examples"
+test -z "$(command -v inkscape)" && err "inkscape"
+
+debug2file=true
+
+x265presets="ultrafast|superfast|veryfast|faster|fast|medium|slow|slower|veryslow|placebo"
+x265tunes="psnr|ssim|grain|zerolatency|fastdecode"
+
+# some utility functions
+# usage: range <from> <to> <step> <delim>
+rangeInt(){
+  out=
+  for (( r=$1; r<$2 ; r=r+$3 )); do out="$out$4$r" ; done
+  echo "${out:1}"
+}
+
+parseValues(){
+  out=
+  for i in "${!values[@]}"; do
+    test "x${values[$i]}" == "xdefault" || out="$out ${keys[$i]} ${values[$i]}"
+  done
+  echo $out
+}
+
+opusOpts(){
+  keys=('-vbr' '-compression_level' '-frame_duration' '-packet_loss' '-application' '-cutoff' '-mapping_family' '-apply_phase_inv' '-b:a ')
+  opts=$(zenity zenity --width=500 --forms --title "x265" \
+    --text "Opus Encoder Options" \
+    --add-combo "VBR mode" --combo-values "default|off|on|constrained" \
+    --add-combo "Compression Level" --combo-values "default|$(rangeInt 0 10 1 '|')" \
+    --add-combo "Frame duration (ms)" --combo-values "default|2.5|5|10|20|40|60" \
+    --add-combo "Packet Loss" --combo-values "default|$(rangeInt 0 100 15 '|')" \
+    --add-combo "Application" --combo-values "default|voip|audio|lowdelay" \
+    --add-combo "Cutoff (Hz)" --combo-values "default|4000|6000|8000|12000|20000" \
+    --add-combo "Mapping Family" --combo-values "default|-1|0|1" \
+    --add-combo "Phase Inversion" --combo-values "default|0|1" \
+    --add-combo "Bitrate" --combo-values "default|24k|32k|48k|56k|64k|80k|96k|128k|192k|224k|256k" \
+  )
+  values=($(sed 's/|/\n/g' <<< $opts))
+  echo $(parseValues)}
+}
+
+vorbisOpts(){
+  keys=('-q' '-b' '-minrate' '-maxrate' '-cutoff')
+  bitrates="default|24k|32k|48k|56k|64k|80k|96k|128k|192k|224k|256k"
+  opts=$(zenity zenity --width=500 --forms --title "x265" \
+    --text "Vorbis Encoder Options" \
+    --add-combo "VBR quality" --combo-values "default|$(rangeInt -1 10 1 '|')" \
+    --add-combo "ABR Bitrate" --combo-values "$bitrates" \ 
+    --add-combo "ABR min bitrate" --combo-values "$bitrates" \
+    --add-combo "ABR max bitrate" --combo-values "$bitrates" \
+  )
+  values=($(sed 's/|/\n/g' <<< $opts))
+  echo $(parseValues)
+}
+
+flacOpts(){
+  keys=('-compression_level' '-lpc_coeff_precision' '-lpc_type' \
+    '-lpc_passes' '-min_partition_order' '-max_partition_order' \
+    '-prediction_order_method' '-ch_mode' 'exact_rice_parameters' 'multi_dim_quant'\
+  )
+  opts=$(zenity zenity --width=500 --forms --title "x265" \
+    --text "FLAC Encoder Options" \
+    --add-combo "Compression" --combo-values "default|$(rangeInt 0 12 1 '|')" \
+    --add-combo "LPC Coefficient" --combo-values "default|$(rangeInt 0 15 1 '|')" \
+    --add-combo "LPC Type" --combo-values "default|none|fixed|levinson|cholesky" \
+    --add-combo "LPC passes" --combo-values "default|$(rangeInt 1 10 1 '|')" \
+    --add-entry "Min. Partition Order" \
+    --add-entry "Max. Partition Order" \
+    --add-combo "Partition Order Method" --combo-values "default|estimation|2level|4level|8level|search|log" \
+    --add-combo "Channel Mode" --combo-values "default|auto|indep|left_side|right_side|mid_side" \
+    --add-combo "Exact Rice Params." --combo-values "default|0|1" \
+    --add-combo "Multi Dimensional Quantization" --combo-values "default|0|1"
+  )
+  values=($(sed 's/|/\n/g' <<< $opts))
+  echo $(parseValues)
+}
+
+aomOpts(){
+  keys=('-crf' '-cpu-used' '-usage' '-tune')
+  opts=$(zenity zenity --width=500 --forms --title "AOM-AV1" \
+    --text "AOM-AV1 Encoder Options" \
+    --add-combo "Quality" --combo-values "default|$(rangeInt -1 63 1 '|')" \ 
+    --add-combo "CPU used" --combo-values "default|$(rangeInt 0 8 1 '|')" \
+    --add-combo "Usage" --combo-values "default|good|realtime|allintra" \
+    --add-combo "Tune" --combo-values "default|0|1" \
+  )
+  
+  # Select the quality for constant quality mode (from -1 to 63) (default -1)
+  # Quality/Speed ratio modifier (from 0 to 8) (default 1)
+  #-usage             <int>        E..V....... Quality and compression efficiency vs speed trade-off (from 0 to INT_MAX) (default good)
+  #   good            0            E..V....... Good quality
+  #   realtime        1            E..V....... Realtime encoding
+  #   allintra        2            E..V....... All Intra encoding
+  #-tune              <int>        E..V....... The metric that the encoder tunes for. Automatically chosen by the encoder by default (from -1 to 1) (default -1)
+  #   psnr            0            E..V.......
+  #   ssim            1            E..V.......
+  #-still-picture     <boolean>    E..V....... Encode in single frame mode (typically used for still AVIF images). (default false)
+  
+  # Enable use of alternate reference frames (2-pass only) (from -1 to 2) (default -1)
+  # --add-combo "Alternate Reference Frames" --combo-values "default|$(rangeInt -1 2 1 '|')" \
+  # Number of frames to look ahead at for alternate reference frame selection (from -1 to INT_MAX) (default -1)
+  # --add-entry "Number frames of altref" \
+  # altref noise reduction max frame count (from -1 to INT_MAX) (default -1)
+  # --add-entry "altref NR frame count" \
+  # altref noise reduction filter strength (from -1 to 6) (default -1)
+  # --add-combo "altref NR filter strength" --combo-values "default|$(rangeInt -1 6 1 '|')" \
+  # adaptive quantization mode (from -1 to 4) (default -1) (default|none|variance|complexity|cyclic)
+  # --add-combo "Adaptive quantization mode" --combo-values "default|$(rangeInt -1 4 1 '|')" \
+  #-static-thresh     <int>        E..V....... A change threshold on blocks below which they will be skipped by the encoder (from 0 to INT_MAX) (default 0)
+  #-drop-threshold    <int>        E..V....... Frame drop threshold (from INT_MIN to INT_MAX) (default 0)
+  #-denoise-noise-level <int>        E..V....... Amount of noise to be removed (from -1 to INT_MAX) (default -1)
+  #-denoise-block-size <int>        E..V....... Denoise block size  (from -1 to INT_MAX) (default -1)
+  #-undershoot-pct    <int>        E..V....... Datarate undershoot (min) target (%) (from -1 to 100) (default -1)
+  #-overshoot-pct     <int>        E..V....... Datarate overshoot (max) target (%) (from -1 to 1000) (default -1)
+  #-minsection-pct    <int>        E..V....... GOP min bitrate (% of target) (from -1 to 100) (default -1)
+  #-maxsection-pct    <int>        E..V....... GOP max bitrate (% of target) (from -1 to 5000) (default -1)
+  #-frame-parallel    <boolean>    E..V....... Enable frame parallel decodability features (default auto)
+  #-tiles             <image_size> E..V....... Tile columns x rows
+  #-tile-columns      <int>        E..V....... Log2 of number of tile columns to use (from -1 to 6) (default -1)
+  #-tile-rows         <int>        E..V....... Log2 of number of tile rows to use (from -1 to 6) (default -1)
+  #-row-mt            <boolean>    E..V....... Enable row based multi-threading (default auto)
+  #-enable-cdef       <boolean>    E..V....... Enable CDEF filtering (default auto)
+  #-enable-global-motion <boolean>    E..V....... Enable global motion (default auto)
+  #-enable-intrabc    <boolean>    E..V....... Enable intra block copy prediction mode (default auto)
+  #-enable-restoration <boolean>    E..V....... Enable Loop Restoration filtering (default auto)
+  #-enable-rect-partitions <boolean>    E..V....... Enable rectangular partitions (default auto)
+  #-enable-1to4-partitions <boolean>    E..V....... Enable 1:4/4:1 partitions (default auto)
+  #-enable-ab-partitions <boolean>    E..V....... Enable ab shape partitions (default auto)
+  #-enable-angle-delta <boolean>    E..V....... Enable angle delta intra prediction (default auto)
+  #-enable-cfl-intra  <boolean>    E..V....... Enable chroma predicted from luma intra prediction (default auto)
+  #-enable-filter-intra <boolean>    E..V....... Enable filter intra predictor (default auto)
+  #-enable-intra-edge-filter <boolean>    E..V....... Enable intra edge filter (default auto)
+  #-enable-smooth-intra <boolean>    E..V....... Enable smooth intra prediction mode (default auto)
+  #-enable-paeth-intra <boolean>    E..V....... Enable paeth predictor in intra prediction (default auto)
+  #-enable-palette    <boolean>    E..V....... Enable palette prediction mode (default auto)
+  #-enable-flip-idtx  <boolean>    E..V....... Enable extended transform type (default auto)
+  #-enable-tx64       <boolean>    E..V....... Enable 64-pt transform (default auto)
+  #-reduced-tx-type-set <boolean>    E..V....... Use reduced set of transform types (default auto)
+  #-use-intra-dct-only <boolean>    E..V....... Use DCT only for INTRA modes (default auto)
+  #-use-inter-dct-only <boolean>    E..V....... Use DCT only for INTER modes (default auto)
+  #-use-intra-default-tx-only <boolean>    E..V....... Use default-transform only for INTRA modes (default auto)
+  #-enable-ref-frame-mvs <boolean>    E..V....... Enable temporal mv prediction (default auto)
+  #-enable-reduced-reference-set <boolean>    E..V....... Use reduced set of single and compound references (default auto)
+  #-enable-obmc       <boolean>    E..V....... Enable obmc (default auto)
+  #-enable-dual-filter <boolean>    E..V....... Enable dual filter (default auto)
+  #-enable-diff-wtd-comp <boolean>    E..V....... Enable difference-weighted compound (default auto)
+  #-enable-dist-wtd-comp <boolean>    E..V....... Enable distance-weighted compound (default auto)
+  #-enable-onesided-comp <boolean>    E..V....... Enable one sided compound (default auto)
+  #-enable-interinter-wedge <boolean>    E..V....... Enable interinter wedge compound (default auto)
+  #-enable-interintra-wedge <boolean>    E..V....... Enable interintra wedge compound (default auto)
+  #-enable-masked-comp <boolean>    E..V....... Enable masked compound (default auto)
+  #-enable-interintra-comp <boolean>    E..V....... Enable interintra compound (default auto)
+  #-enable-smooth-interintra <boolean>    E..V....... Enable smooth interintra mode (default auto)
+  #-aom-params        <dictionary> E..V....... Set libaom options using a :-separated list of key=value pairs
+  values=($(sed 's/|/\n/g' <<< $opts))
+  echo $(parseValues)
+}
+
+heicopts(){
+  keys=('-L ' '-p quality=' '-p preset=' '-p tune=' '-p tu-intra-depth=' '-p complexity=' '-p chroma=')
+  opts=$(zenity zenity --width=500 --forms --title "x265" \
+    --text "HEIC x265 Codec Options" \
+    --add-combo "Quality" --combo-values "default|$(rangeInt 10 100 2 '|')|Lossless" \
+    --add-combo "Preset" --combo-values "default|${x265presets}" \
+    --add-combo "Tune" --combo-values "default|${x265tunes}" \
+    --add-combo "TU intra depth" --combo-values "default|1|2|3|4" \
+    --add-combo "Complexity" --combo-values "default|$(rangeInt 10 100 2 '|')" \
+    --add-combo "Chroma" --combo-values "default|420|422|444" \
+  )
+  values=($(sed 's/|/\n/g' <<< $opts))
+  out=
+  test "x${values[0]}" == "xLossless" && out="-L " && ${values[0]}="default"
+  for i in "${!values[@]}"; do
+    test "x${values[$i]}" == "xdefault" || out="$out ${keys[$i]}${values[$i]}"
+  done
+  echo $out
+}
+
+x265opts(){
+  keys=('-preset' '-tune' '-crf')
+  opts=$(zenity zenity --width=500 --forms --title "x265" \
+    --text "x265 Codec Options" \
+    --add-combo "Preset" --combo-values ${x265presets} \
+    --add-combo "Tune" --combo-values ${x265tunes} \
+    --add-combo "CRF" --combo-values "default|$(rangeInt 0 50 2 '|')" \
+  )
+  values=($(sed 's/|/\n/g' <<< $opts))
+  echo $(parseValues)
+}
+
+SAVEIFS=$IFS
+IFS=$'\n'; b=($NAUTILUS_SCRIPT_SELECTED_FILE_PATHS)
+len=${#b[@]}
+IFS=$SAVEIFS
+
+# verify mimetypes in filelist
+mimeList=()
+for f in "${b[@]}"; do
+  m=$(file -b --mime-type "$f")
+  case $m in
+    "audio/"*) mimeList+=("audio");;
+    "video/"*) mimeList+=("video");;
+    "image/"*) mimeList+=("image");;
+    * ) mimeList+=("$m");;
+  esac
+done
+# remove duplicates and sort
+mimeList=( $(printf "%s\n" ${mimeList[@]} | sort -n | uniq ) )
+
+case ${#mimeList[@]} in
+  0 ) zenity $z --warning --text="No mimetypes available. Exiting."
+      exit 1
+      ;;
+  1 ) mime=${mimeList[0]}
+      ;;
+  * ) optMime=()
+      for i in ${mimeList[@]}; do optMime+=(false); optMime+=($i); done
+      ${optMime[0]}=true
+      mime=$(zenity --list --radiolist --title "Multiple Types" \
+        --text "Select one of the selected types" \
+        --column "" --column "Format" ${optMime[@]}
+      );;
+esac
+ffopt1="-hide_banner -loglevel quiet"
+ffopt2="-movflags use_metadata_tags"
+
+case "$mime" in
+  "image") ops=(true "heic" false "avif" false "avif/libaom" false "png" false "img-resize" false "img-rename");;
+  "video") ops=(true "hevc" false "xvid" false "h264");;
+  "audio") ops=(true "mp3" false "m4a" false "flac" false "ogg" false "opus");;
+  *) zenity --error --text="\"$mime\" not supported yet"; exit 1;;
+esac
+
+op=$(zenity --list --radiolist --title "Convert to" --text "$mime" --column "" --column "Format" ${ops[@]})
+
+case "$op" in
+  heic) cmd="do-heif"; ffEncoder="$(heicopts)"; ffSufix=""; ffFormat="heic";;
+  avif) cmd="do-heif"; ffEncoder="-A"; ffSufix=""; ffFormat="avif";;
+  avif/libaom) cmd="do-ffmpeg"; ffEncoder="-c:v libaom-av1 -still-picture true $(aomOpts)"; ffSufix=""; ffFormat="avif";;
+  hevc) cmd="do-ffmpeg"; ffEncoder="-c:v libx265 $(x265opts)"; ffSufix="-HEVC"; ffFormat="mp4";;
+  h264) cmd="do-ffmpeg"; ffEncoder="-c:v libx264"; ffSufix="-H264"; ffFormat="mp4";;
+  xvid) cmd="do-ffmpeg"; ffEncoder="-c:v libxvid"; ffSufix="-xvid"; ffFormat="mp4";;
+  flac) cmd="do-ffmpeg"; ffEncoder="-c:a flac $(flacOpts)"; ffSufix=""; ffFormat="flac";;
+  mp3)  cmd="do-ffmpeg"; ffEncoder="-c:a libmp3lame"; ffSufix=""; ffFormat="mp3";;
+  m4a)  cmd="do-ffmpeg"; ffEncoder="-c:a aac"; ffSufix=""; ffFormat="m4a";;
+  ogg)  cmd="do-ffmpeg"; ffEncoder="-c:a libvorbis $(vorbisOpts)"; ffSufix=""; ffFormat="ogg";;
+  opus) cmd="do-ffmpeg"; ffEncoder="-c:a libopus $(opusOpts)"; ffSufix="-opus"; ffFormat="ogg";;
+  *) cmd="echo";;
+esac
+
+ffProgress(){
+  duration=$(ffprobe -v quiet -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
+  timeStart=$(date +%s)
+  fname=$(basename "$file")
+  iHead="# File: ${fname%.*} ($count of $len)\nSize: $(du -hs "$file" | awk '{print $1}')B Duration: $(date -d @$duration -u +%H:%M:%S)"
+  tpos=0
+  while [ -e /proc/$PID ]; do
+    tpos=$(grep 'out_time=' "$log" | tail -n1 | sed 's/out_time=//')
+    tpos=$(TZ=utc date -d "1970-01-01 $tpos" +'%s')
+    ela=$(( $(date +%s) - timeStart ))
+    test "x$tpos" == "x0" && eta="n/a" || eta=$(date -d @$(awk 'BEGIN{print int(('$ela' / '$tpos') * ('$duration' - '$tpos'))}') -u +%H:%M:%S)
+    echo "${iHead}\nElapsed: $(date -d @$ela -u +%H:%M:%S) ETA: $eta"
+    echo $(awk 'BEGIN{print int(('$step' + '$pfrac' * '$tpos' / '$duration'))}')
+  done
+}
+
+do-ffmpeg(){
+  timeStart=$(date +%s)
+  fname=$(basename "$file")
+  log=/tmp/ffmpeg.log
+  ffmpeg ${ffopt1} -i "$file" -progress ${log} ${ffopt2} ${ffEncoder} "${file%.*}${ffSufix}.${ffFormat}" & PID=$! && ffProgress
+  rm -f $log
+}
+
+do-heif(){
+  iHead="# File: ${fname%.*} ($count of $len)\nSize: $(du -hs $file | awk '{print $1}')B"
+  echo $iHead
+  echo $(( step ))
+  heif-enc $ffEncoder "$file"
+}
+
+count=1
+pfrac=$(( 100 / len ))
+for i in "${!b[@]}"; do
+  step=$(( i * pfrac ))
+  file="${b[$i]}"
+  mime2=$(file -b --mime-type "$file")
+  case ${mime2} in ${mime}*) $cmd "${file}" $sfx;; esac
+  ((count+=1))
+done | zenity --progress --width=500 --title="Converting" \
+  --text="Initializing please wait..." \
+  --percentage=0 \
+  --auto-close --auto-kill
+
+if $debug2file; then
+  set +x
+fi

@@ -1,0 +1,5 @@
+#!/bin/bash
+b=($NAUTILUS_SCRIPT_SELECTED_FILE_PATHS)
+d=$(dirname "${b[0]}")
+fname=$(zenity zenity --width=400 --title="Create" --entry --text="Enter filename")
+test -n "$fname" && test "$fname" = *"/"* || touch "$d/$fname"

@@ -1,0 +1,62 @@
+#!/bin/bash
+
+IFS=$'\n'; fileList=($NAUTILUS_SCRIPT_SELECTED_FILE_PATHS); unset IFS
+len=${#fileList[@]}
+
+z="--width=500 --window-icon=/usr/share/icons/gnome/48x48/apps/preferences-system-search.png"
+
+createSymlinks(){
+  destDir=$(zenity $z --file-selection --title="Select a Directory" --directory)
+
+  case $? in
+    0)  for file in ${fileList[@]}; do
+          fname=$(basename "$file")
+          ln -s "$file" "${destDir}/${fname}"
+        done
+        zenity $z --info --text="$len symlinks created in $destDir"
+        exit 0
+        ;;
+    1)  zenity $z --warning --text="No directory selected. Exiting."
+        exit 1
+        ;;
+   -1)  zenity $z --warning --text="An unexpected error has occurred. Exiting."
+        exit 1
+        ;;
+  esac
+}
+
+findSymlinks(){
+  file="$1"
+  root=$(zenity $z --file-selection --filename=$(dirname "$file") --title="Start from directory" --directory)
+  list=$(find -L "$root" -samefile "$file")
+
+  for i in $list; do
+    test -L "$i" && t="link" || t="file"
+    flist+=" $i $t"
+  done
+  
+  sel=$(zenity $z --height=300 --html --list --title "Symlinks to $f" --column "full path" --column "type" $flist)
+  echo "$sel" | xsel -ab
+  zenity --info --text "$sel\ncopied to clipboard"
+}
+
+if [ "x$len" = "x1" ]; then
+  file="${fileList[0]}"
+  fname=$(basename "$file")
+  # test -L "$file" || xtra=(false 2 "Get source file location")
+  op=$(zenity $z --list --radiolist --title "Symlink" \
+        --text "Select your action" --column "" --column "" --column "Action" --hide-column=2 \
+        true  0 "Create Symlink" \
+        false 1 "Find all related links for $fname " \
+        false 2 "Open target $fname in File Manager"
+      )
+  case $op in
+    0)  createSymlinks;;
+    1)  findSymlinks "$file";;
+    2)  nautilus $(readlink -f "$file");;
+  esac
+  exit 0
+fi
+
+createSymlinks
+

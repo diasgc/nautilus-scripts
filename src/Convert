@@ -210,6 +210,13 @@ do-heif(){
   heif-enc $ffEncoder "$file"
 }
 
+trapExit(){
+  killall ffmpeg heif-enc
+  test -f "$log" && rm -f $log
+  endDebug
+  zenity --error --text "Aborted!"
+  exit
+}
 
 
 # Main program
@@ -271,11 +278,7 @@ esac
 
 count=1
 pfrac=$(( 100 / fileListLen ))
-trap "killall ffmpeg; \
-      zenity --error --text "Operation Aborted!"; \
-      test -f "$log" && rm -f $log; \
-      exit" \
-  INT TERM EXIT
+trap trapExit INT TERM EXIT
 
 for i in "${!fileList[@]}"; do
   step=$(( i * pfrac ))

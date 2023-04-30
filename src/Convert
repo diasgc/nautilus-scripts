@@ -9,6 +9,7 @@ x265presets="ultrafast|superfast|veryfast|faster|fast|medium|slow|slower|veryslo
 x265tunes="psnr|ssim|grain|zerolatency|fastdecode"
 bitrates="default|24k|32k|48k|56k|64k|80k|96k|128k|192k|224k|256k"
 zCodecTitle=" Encoder Options (or leave empty for default)"
+log=/tmp/ffmpeg.log
 
 opusOpts(){
   keys=('-vbr' '-compression_level' '-frame_duration' '-packet_loss' '-application' '-cutoff' '-mapping_family' '-apply_phase_inv' '-b:a ')
@@ -172,7 +173,42 @@ x265opts(){
   echo $(parseValues)
 }
 
+ffProgress(){
+  duration=$(ffprobe -v quiet -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
+  timeStart=$(date +%s)
+  fname=$(basename "$file")
+  iHead="# File: ${fname%.*} ($count of $fileListLen)\nSize: $(du -hs "$file" | awk '{print $1}')B Duration: $(date -d @$duration -u +%H:%M:%S)"
+  tpos=0
+  while [ -e /proc/$PID ]; do
+    tpos=$(grep 'out_time=' "$log" | tail -n1 | sed 's/out_time=//')
+    tsz=$(grep 'total_size=' "$log" | tail -n1 | sed 's/total_size=//') 
+    tpos=$(TZ=utc date -d "1970-01-01 $tpos" +'%s')
+    ela=$(( $(date +%s) - timeStart ))
+    if [ "x$tpos" == "x0" ]; then
+      eta="n/a"
+      esz="n/a"
+    else
+      eta=$(date -d @$(awk 'BEGIN{print int(('$ela' / '$tpos') * ('$duration' - '$tpos'))}') -u +%H:%M:%S)
+      esz=$(awk 'BEGIN{print int('$tsz' * '$duration' / '$tpos')}' | numfmt --to=si --suffix=B)
+    fi
+    echo "${iHead}\nElapsed: $(date -d @$ela -u +%H:%M:%S) ETA: $eta Est.Size: $esz"
+    echo $(awk 'BEGIN{print int(('$step' + '$pfrac' * '$tpos' / '$duration'))}')
+  done
+}
 
+do-ffmpeg(){
+  timeStart=$(date +%s)
+  fname=$(basename "$file")
+  ffmpeg ${ffopt1} -i "$file" -progress ${log} ${ffopt2} ${ffEncoder} "${file%.*}${ffSufix}.${ffFormat}" & PID=$! && ffProgress
+  #rm -f $log
+}
+
+do-heif(){
+  iHead="# File: ${fname%.*} ($count of $fileListLen)\nSize: $(du -hs $file | awk '{print $1}')B"
+  echo $iHead
+  echo $(( step ))
+  heif-enc $ffEncoder "$file"
+}
 
 
 
@@ -233,61 +269,23 @@ case "$op" in
   *) cmd="echo";;
 esac
 
-ffProgress(){
-  duration=$(ffprobe -v quiet -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
-  timeStart=$(date +%s)
-  fname=$(basename "$file")
-  iHead="# File: ${fname%.*} ($count of $fileListLen)\nSize: $(du -hs "$file" | awk '{print $1}')B Duration: $(date -d @$duration -u +%H:%M:%S)"
-  tpos=0
-  while [ -e /proc/$PID ]; do
-    #if [ "$rc" != "0" ]; then
-    #  kill $PID
-    #  zenity --error --text "Aborted!"
-    #  exit 1
-    #fi
-    tpos=$(grep 'out_time=' "$log" | tail -n1 | sed 's/out_time=//')
-    tsz=$(grep 'total_size=' "$log" | tail -n1 | sed 's/total_size=//') 
-    tpos=$(TZ=utc date -d "1970-01-01 $tpos" +'%s')
-    ela=$(( $(date +%s) - timeStart ))
-    if [ "x$tpos" == "x0" ]; then
-      eta="n/a"
-      esz="n/a"
-    else
-      eta=$(date -d @$(awk 'BEGIN{print int(('$ela' / '$tpos') * ('$duration' - '$tpos'))}') -u +%H:%M:%S)
-      esz=$(awk 'BEGIN{print int('$tsz' * '$duration' / '$tpos')}' | numfmt --to=si --suffix=B)
-    fi
-    echo "${iHead}\nElapsed: $(date -d @$ela -u +%H:%M:%S) ETA: $eta Est.Size: $esz"
-    echo $(awk 'BEGIN{print int(('$step' + '$pfrac' * '$tpos' / '$duration'))}')
-  done
-}
-
-do-ffmpeg(){
-  timeStart=$(date +%s)
-  fname=$(basename "$file")
-  log=/tmp/ffmpeg.log
-  ffmpeg ${ffopt1} -i "$file" -progress ${log} ${ffopt2} ${ffEncoder} "${file%.*}${ffSufix}.${ffFormat}" & PID=$! && ffProgress
-  #rm -f $log
-}
-
-do-heif(){
-  iHead="# File: ${fname%.*} ($count of $fileListLen)\nSize: $(du -hs $file | awk '{print $1}')B"
-  echo $iHead
-  echo $(( step ))
-  heif-enc $ffEncoder "$file"
-}
-
 count=1
-rc=0
 pfrac=$(( 100 / fileListLen ))
+trap "killall ffmpeg; \
+      zenity --error --text "Operation Aborted!"; \
+      test -f "$log" && rm -f $log; \
+      exit" \
+  INT TERM EXIT
+
 for i in "${!fileList[@]}"; do
   step=$(( i * pfrac ))
   file="${fileList[$i]}"
   mime2=$(mimetype -b "$file")
   case ${mime2} in ${mime}*) $cmd "${file}" $sfx;; esac
-  ((count+=1))
+  (( count+=1 ))
 done | zenity --progress --width=500 --title="Converting" \
   --text="Initializing please wait..." \
   --percentage=0 \
   --auto-close --auto-kill
-rc=$?
+
 endDebug

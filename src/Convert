@@ -1,21 +1,27 @@
-#!/bin/bash
+#! /bin/bash
+#Title=Convert
 # diasgc 2023 April
 
-# debug script to ~/convert.log
-if $debug2file; then  
-  exec 22>$HOME/convert.log &>>$HOME/convert.log
-  BASH_XTRACEFD=22
-  set -x
-fi
+. .common
 
 test -z "$(command -v zenity)" && exit 1
 
-err(){
-  zenity --error --text "<b>$1 is not installed</b>\n\nPlease run sudo apt install $1"
-  exit 1
+SAVEIFS=$IFS
+IFS=$'\n'
+export fileList=($NAUTILUS_SCRIPT_SELECTED_FILE_PATHS)
+IFS=$SAVEIFS
+export fileListLen=${#fileList[@]}
+export fileListDir=$(dirname "${fileList[0]}")
+logfile="$HOME/convert.log"
+
+startDebug(){
+  debug2file=true
+  test -f "${logfile}" && rm -f ${logfile}
+  exec 22>${logfile} &>>${logfile}
+  BASH_XTRACEFD=22
+  set -x
 }
 
-# usage: checkPackages pkg1 pkg2 ...
 checkPackages(){
   for pkg in "$@"; do
     if [ -z "$(command -v $pkg)" ]; then
@@ -24,13 +30,6 @@ checkPackages(){
     fi
   done
 }
-
-checkPackages ffmpeg libheif-examples inkscape
-
-debug2file=true
-
-x265presets="ultrafast|superfast|veryfast|faster|fast|medium|slow|slower|veryslow|placebo"
-x265tunes="psnr|ssim|grain|zerolatency|fastdecode"
 
 # some utility functions
 # usage: range <from> <to> <step> <delim>
@@ -47,6 +46,17 @@ parseValues(){
   done
   echo $out
 }
+
+endDebug(){
+  test $debug2file && set +x && gedit $logfile
+}
+
+startDebug
+
+checkPackages ffmpeg heif-enc inkscape
+
+x265presets="ultrafast|superfast|veryfast|faster|fast|medium|slow|slower|veryslow|placebo"
+x265tunes="psnr|ssim|grain|zerolatency|fastdecode"
 
 opusOpts(){
   keys=('-vbr' '-compression_level' '-frame_duration' '-packet_loss' '-application' '-cutoff' '-mapping_family' '-apply_phase_inv' '-b:a ')
@@ -207,22 +217,19 @@ x265opts(){
   keys=('-preset' '-tune' '-crf')
   opts=$(zenity zenity --width=500 --forms --title "x265" \
     --text "x265 Codec Options" \
-    --add-combo "Preset" --combo-values ${x265presets} \
-    --add-combo "Tune" --combo-values ${x265tunes} \
+    --add-combo "Preset" --combo-values "default|${x265presets}" \
+    --add-combo "Tune" --combo-values "default|${x265tunes}" \
     --add-combo "CRF" --combo-values "default|$(rangeInt 0 50 2 '|')" \
   )
   values=($(sed 's/|/\n/g' <<< $opts))
   echo $(parseValues)
 }
 
-SAVEIFS=$IFS
-IFS=$'\n'; b=($NAUTILUS_SCRIPT_SELECTED_FILE_PATHS)
-len=${#b[@]}
-IFS=$SAVEIFS
+fileListLen=${#fileList[@]}
 
 # verify mimetypes in filelist
 mimeList=()
-for f in "${b[@]}"; do
+for f in "${fileList[@]}"; do
   m=$(file -b --mime-type "$f")
   case $m in
     "audio/"*) mimeList+=("audio");;
@@ -279,14 +286,21 @@ ffProgress(){
   duration=$(ffprobe -v quiet -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
   timeStart=$(date +%s)
   fname=$(basename "$file")
-  iHead="# File: ${fname%.*} ($count of $len)\nSize: $(du -hs "$file" | awk '{print $1}')B Duration: $(date -d @$duration -u +%H:%M:%S)"
+  iHead="# File: ${fname%.*} ($count of $fileListLen)\nSize: $(du -hs "$file" | awk '{print $1}')B Duration: $(date -d @$duration -u +%H:%M:%S)"
   tpos=0
   while [ -e /proc/$PID ]; do
     tpos=$(grep 'out_time=' "$log" | tail -n1 | sed 's/out_time=//')
+    tsz=$(grep 'total_size=' "$log" | tail -n1 | sed 's/total_size=//') 
     tpos=$(TZ=utc date -d "1970-01-01 $tpos" +'%s')
     ela=$(( $(date +%s) - timeStart ))
-    test "x$tpos" == "x0" && eta="n/a" || eta=$(date -d @$(awk 'BEGIN{print int(('$ela' / '$tpos') * ('$duration' - '$tpos'))}') -u +%H:%M:%S)
-    echo "${iHead}\nElapsed: $(date -d @$ela -u +%H:%M:%S) ETA: $eta"
+    if [ "x$tpos" == "x0" ]; then
+      eta="n/a"
+      esz="n/a"
+    else
+      eta=$(date -d @$(awk 'BEGIN{print int(('$ela' / '$tpos') * ('$duration' - '$tpos'))}') -u +%H:%M:%S)
+      esz=$(awk 'BEGIN{print int('$tsz' * '$duration' / '$tpos')}' | numfmt --to=si --suffix=B)
+    fi
+    echo "${iHead}\nElapsed: $(date -d @$ela -u +%H:%M:%S) ETA: $eta Est.Size: $esz"
     echo $(awk 'BEGIN{print int(('$step' + '$pfrac' * '$tpos' / '$duration'))}')
   done
 }
@@ -308,9 +322,9 @@ do-heif(){
 
 count=1
 pfrac=$(( 100 / len ))
-for i in "${!b[@]}"; do
+for i in "${!fileList[@]}"; do
   step=$(( i * pfrac ))
-  file="${b[$i]}"
+  file="${fileList[$i]}"
   mime2=$(file -b --mime-type "$file")
   case ${mime2} in ${mime}*) $cmd "${file}" $sfx;; esac
   ((count+=1))
@@ -319,6 +333,4 @@ done | zenity --progress --width=500 --title="Converting" \
   --percentage=0 \
   --auto-close --auto-kill
 
-if $debug2file; then
-  set +x
-fi
+endDebug

@@ -1,14 +1,22 @@
 #!/bin/bash
 # diasgc 2023 April
 
-# debug script to ~/convert.log
-if $debug2file; then  
+# Require zenity
+test -z "$(command -v zenity)" && exit 1
+
+SAVEIFS=$IFS
+IFS=$'\n'
+export fileList=($NAUTILUS_SCRIPT_SELECTED_FILE_PATHS)
+IFS=$SAVEIFS
+export fileListLen=${#fileList[@]}
+export fileListDir=$(dirname "${fileList[0]}")
+
+startDebug(){
+  debug2file=true
   exec 22>$HOME/convert.log &>>$HOME/convert.log
   BASH_XTRACEFD=22
   set -x
-fi
-
-test -z "$(command -v zenity)" && exit 1
+}
 
 checkPackages(){
   for pkg in "$@"; do
@@ -17,4 +25,24 @@ checkPackages(){
       exit 1
     fi
   done
+}
+
+# some utility functions
+# usage: range <from> <to> <step> <delim>
+rangeInt(){
+  out=
+  for (( r=$1; r<$2 ; r=r+$3 )); do out="$out$4$r" ; done
+  echo "${out:1}"
+}
+
+parseValues(){
+  out=
+  for i in "${!values[@]}"; do
+    test "x${values[$i]}" == "xdefault" || out="$out ${keys[$i]} ${values[$i]}"
+  done
+  echo $out
+}
+
+endDebug(){
+  test $debug2file && set +x
 }

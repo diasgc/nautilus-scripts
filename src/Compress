@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source .common
+source "$(dirname ${BASH_SOURCE[0]})/.common"
 
 opts=$(zenity --forms --text "Enter archive name with extension" --add-entry "Name" \
     --add-combo "Extension" --combo-values "default|tar|tar.gz|tar.xz|zip|7z|lzh|lha" 

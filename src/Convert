@@ -1,67 +1,19 @@
-#! /bin/bash
+#!/bin/bash
 #Title=Convert
 # diasgc 2023 April
+source "$(dirname ${BASH_SOURCE[0]})/.common"
 
-. .common
-
-test -z "$(command -v zenity)" && exit 1
-
-SAVEIFS=$IFS
-IFS=$'\n'
-export fileList=($NAUTILUS_SCRIPT_SELECTED_FILE_PATHS)
-IFS=$SAVEIFS
-export fileListLen=${#fileList[@]}
-export fileListDir=$(dirname "${fileList[0]}")
-logfile="$HOME/convert.log"
-
-startDebug(){
-  debug2file=true
-  test -f "${logfile}" && rm -f ${logfile}
-  exec 22>${logfile} &>>${logfile}
-  BASH_XTRACEFD=22
-  set -x
-}
-
-checkPackages(){
-  for pkg in "$@"; do
-    if [ -z "$(command -v $pkg)" ]; then
-      zenity --error --text "<b>$pkg is not installed</b>\n\nPlease run sudo apt install $pkg"
-      exit 1
-    fi
-  done
-}
-
-# some utility functions
-# usage: range <from> <to> <step> <delim>
-rangeInt(){
-  out=
-  for (( r=$1; r<$2 ; r=r+$3 )); do out="$out$4$r" ; done
-  echo "${out:1}"
-}
-
-parseValues(){
-  out=
-  for i in "${!values[@]}"; do
-    test "x${values[$i]}" == "xdefault" || out="$out ${keys[$i]} ${values[$i]}"
-  done
-  echo $out
-}
-
-endDebug(){
-  test $debug2file && set +x && gedit $logfile
-}
-
-startDebug
-
-checkPackages ffmpeg heif-enc inkscape
+checkDeps ffmpeg libheif-examples inkscape
 
 x265presets="ultrafast|superfast|veryfast|faster|fast|medium|slow|slower|veryslow|placebo"
 x265tunes="psnr|ssim|grain|zerolatency|fastdecode"
+bitrates="default|24k|32k|48k|56k|64k|80k|96k|128k|192k|224k|256k"
+zCodecTitle=" Encoder Options (or leave empty for default)"
 
 opusOpts(){
   keys=('-vbr' '-compression_level' '-frame_duration' '-packet_loss' '-application' '-cutoff' '-mapping_family' '-apply_phase_inv' '-b:a ')
   opts=$(zenity zenity --width=500 --forms --title "x265" \
-    --text "Opus Encoder Options" \
+    --text "Opus ${zCodecTitle}" \
     --add-combo "VBR mode" --combo-values "default|off|on|constrained" \
     --add-combo "Compression Level" --combo-values "default|$(rangeInt 0 10 1 '|')" \
     --add-combo "Frame duration (ms)" --combo-values "default|2.5|5|10|20|40|60" \
@@ -70,23 +22,23 @@ opusOpts(){
     --add-combo "Cutoff (Hz)" --combo-values "default|4000|6000|8000|12000|20000" \
     --add-combo "Mapping Family" --combo-values "default|-1|0|1" \
     --add-combo "Phase Inversion" --combo-values "default|0|1" \
-    --add-combo "Bitrate" --combo-values "default|24k|32k|48k|56k|64k|80k|96k|128k|192k|224k|256k" \
+    --add-combo "Bitrate" --combo-values "$bitrates" \
   )
-  values=($(sed 's/|/\n/g' <<< $opts))
+  values=($(sed 's/ /default/g;s/|/\n/g' <<< $opts))
   echo $(parseValues)}
 }
 
 vorbisOpts(){
   keys=('-q' '-b' '-minrate' '-maxrate' '-cutoff')
-  bitrates="default|24k|32k|48k|56k|64k|80k|96k|128k|192k|224k|256k"
+  
   opts=$(zenity zenity --width=500 --forms --title "x265" \
-    --text "Vorbis Encoder Options" \
+    --text "Vorbis ${zCodecTitle}" \
     --add-combo "VBR quality" --combo-values "default|$(rangeInt -1 10 1 '|')" \
     --add-combo "ABR Bitrate" --combo-values "$bitrates" \ 
     --add-combo "ABR min bitrate" --combo-values "$bitrates" \
     --add-combo "ABR max bitrate" --combo-values "$bitrates" \
   )
-  values=($(sed 's/|/\n/g' <<< $opts))
+  values=($(sed 's/ /default/g;s/|/\n/g' <<< $opts))
   echo $(parseValues)
 }
 
@@ -96,7 +48,7 @@ flacOpts(){
     '-prediction_order_method' '-ch_mode' 'exact_rice_parameters' 'multi_dim_quant'\
   )
   opts=$(zenity zenity --width=500 --forms --title "x265" \
-    --text "FLAC Encoder Options" \
+    --text "FLAC ${zCodecTitle}" \
     --add-combo "Compression" --combo-values "default|$(rangeInt 0 12 1 '|')" \
     --add-combo "LPC Coefficient" --combo-values "default|$(rangeInt 0 15 1 '|')" \
     --add-combo "LPC Type" --combo-values "default|none|fixed|levinson|cholesky" \
@@ -108,20 +60,21 @@ flacOpts(){
     --add-combo "Exact Rice Params." --combo-values "default|0|1" \
     --add-combo "Multi Dimensional Quantization" --combo-values "default|0|1"
   )
-  values=($(sed 's/|/\n/g' <<< $opts))
+  values=($(sed 's/ /default/g;s/|/\n/g' <<< $opts))
   echo $(parseValues)
 }
 
 aomOpts(){
   keys=('-crf' '-cpu-used' '-usage' '-tune')
   opts=$(zenity zenity --width=500 --forms --title "AOM-AV1" \
-    --text "AOM-AV1 Encoder Options" \
+    --text "AOM-AV1 ${zCodecTitle}" \
     --add-combo "Quality" --combo-values "default|$(rangeInt -1 63 1 '|')" \ 
     --add-combo "CPU used" --combo-values "default|$(rangeInt 0 8 1 '|')" \
     --add-combo "Usage" --combo-values "default|good|realtime|allintra" \
     --add-combo "Tune" --combo-values "default|0|1" \
   )
-  
+  values=($(sed 's/ /default/g;s/|/\n/g' <<< $opts))
+  echo $(parseValues)
   # Select the quality for constant quality mode (from -1 to 63) (default -1)
   # Quality/Speed ratio modifier (from 0 to 8) (default 1)
   #-usage             <int>        E..V....... Quality and compression efficiency vs speed trade-off (from 0 to INT_MAX) (default good)
@@ -189,14 +142,12 @@ aomOpts(){
   #-enable-interintra-comp <boolean>    E..V....... Enable interintra compound (default auto)
   #-enable-smooth-interintra <boolean>    E..V....... Enable smooth interintra mode (default auto)
   #-aom-params        <dictionary> E..V....... Set libaom options using a :-separated list of key=value pairs
-  values=($(sed 's/|/\n/g' <<< $opts))
-  echo $(parseValues)
 }
 
 heicopts(){
-  keys=('-L ' '-p quality=' '-p preset=' '-p tune=' '-p tu-intra-depth=' '-p complexity=' '-p chroma=')
+  keys=('-p quality=' '-p preset=' '-p tune=' '-p tu-intra-depth=' '-p complexity=' '-p chroma=')
   opts=$(zenity zenity --width=500 --forms --title "x265" \
-    --text "HEIC x265 Codec Options" \
+    --text "HEIC x265 ${zCodecTitle}" \
     --add-combo "Quality" --combo-values "default|$(rangeInt 10 100 2 '|')|Lossless" \
     --add-combo "Preset" --combo-values "default|${x265presets}" \
     --add-combo "Tune" --combo-values "default|${x265tunes}" \
@@ -204,28 +155,28 @@ heicopts(){
     --add-combo "Complexity" --combo-values "default|$(rangeInt 10 100 2 '|')" \
     --add-combo "Chroma" --combo-values "default|420|422|444" \
   )
-  values=($(sed 's/|/\n/g' <<< $opts))
-  out=
-  test "x${values[0]}" == "xLossless" && out="-L " && ${values[0]}="default"
-  for i in "${!values[@]}"; do
-    test "x${values[$i]}" == "xdefault" || out="$out ${keys[$i]}${values[$i]}"
-  done
-  echo $out
+  values=($(sed 's/ /default/g;s/|/\n/g' <<< $opts))
+  test "x${values[0]}" == "xLossless" && out=" -L" && ${values[0]}="default"
+  echo "$(parseValues)${out}"
 }
 
 x265opts(){
   keys=('-preset' '-tune' '-crf')
   opts=$(zenity zenity --width=500 --forms --title "x265" \
-    --text "x265 Codec Options" \
+    --text "x265 ${zCodecTitle}" \
     --add-combo "Preset" --combo-values "default|${x265presets}" \
     --add-combo "Tune" --combo-values "default|${x265tunes}" \
     --add-combo "CRF" --combo-values "default|$(rangeInt 0 50 2 '|')" \
   )
-  values=($(sed 's/|/\n/g' <<< $opts))
+  values=($(sed 's/ /default/g;s/|/\n/g' <<< $opts))
   echo $(parseValues)
 }
 
-fileListLen=${#fileList[@]}
+
+
+
+
+# Main program
 
 # verify mimetypes in filelist
 mimeList=()
@@ -289,6 +240,11 @@ ffProgress(){
   iHead="# File: ${fname%.*} ($count of $fileListLen)\nSize: $(du -hs "$file" | awk '{print $1}')B Duration: $(date -d @$duration -u +%H:%M:%S)"
   tpos=0
   while [ -e /proc/$PID ]; do
+    #if [ "$rc" != "0" ]; then
+    #  kill $PID
+    #  zenity --error --text "Aborted!"
+    #  exit 1
+    #fi
     tpos=$(grep 'out_time=' "$log" | tail -n1 | sed 's/out_time=//')
     tsz=$(grep 'total_size=' "$log" | tail -n1 | sed 's/total_size=//') 
     tpos=$(TZ=utc date -d "1970-01-01 $tpos" +'%s')
@@ -310,7 +266,7 @@ do-ffmpeg(){
   fname=$(basename "$file")
   log=/tmp/ffmpeg.log
   ffmpeg ${ffopt1} -i "$file" -progress ${log} ${ffopt2} ${ffEncoder} "${file%.*}${ffSufix}.${ffFormat}" & PID=$! && ffProgress
-  rm -f $log
+  #rm -f $log
 }
 
 do-heif(){
@@ -321,6 +277,7 @@ do-heif(){
 }
 
 count=1
+rc=0
 pfrac=$(( 100 / fileListLen ))
 for i in "${!fileList[@]}"; do
   step=$(( i * pfrac ))
@@ -332,5 +289,5 @@ done | zenity --progress --width=500 --title="Converting" \
   --text="Initializing please wait..." \
   --percentage=0 \
   --auto-close --auto-kill
-
+rc=$?
 endDebug

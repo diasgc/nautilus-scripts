@@ -1,26 +1,17 @@
 #!/bin/bash
 # diasgc 2023 April
 
-# Require zenity
-test -z "$(command -v zenity)" && exit 1
-
-SAVEIFS=$IFS
-IFS=$'\n'
-export fileList=($NAUTILUS_SCRIPT_SELECTED_FILE_PATHS)
-IFS=$SAVEIFS
-export fileListLen=${#fileList[@]}
-export fileListDir=$(dirname "${fileList[0]}")
-
 startDebug(){
   debug2file=true
-  exec 22>$HOME/convert.log &>>$HOME/convert.log
+  export logfile="$HOME/convert.log"
+  exec 22>$logfile &>>$logfile
   BASH_XTRACEFD=22
   set -x
 }
 
-checkPackages(){
+checkDeps(){
   for pkg in "$@"; do
-    if [ -z "$(command -v $pkg)" ]; then
+    if [ ! "$pkg" == "$(dpkg-query -W "$pkg" | awk '{print $1}')" ]; then
       zenity --error --text "<b>$pkg is not installed</b>\n\nPlease run sudo apt install $pkg"
       exit 1
     fi
@@ -46,3 +37,24 @@ parseValues(){
 endDebug(){
   test $debug2file && set +x
 }
+
+
+
+
+
+
+# Enable debug to file
+startDebug
+
+# Requires zenity
+test -z "$(command -v zenity)" && exit 1
+test -z "$NAUTILUS_SCRIPT_SELECTED_FILE_PATHS" && exit 1
+
+SAVEIFS=$IFS
+IFS=$'\n'
+export fileList=($NAUTILUS_SCRIPT_SELECTED_FILE_PATHS)
+IFS=$SAVEIFS
+export fileListLen=${#fileList[@]}
+export fileListDir=$(dirname "${fileList[0]}")
+
+echo "Common is loaded!"

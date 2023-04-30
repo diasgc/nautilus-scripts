@@ -1,7 +1,6 @@
 #!/bin/bash
 
-IFS=$'\n'; fileList=($NAUTILUS_SCRIPT_SELECTED_FILE_PATHS); unset IFS
-len=${#fileList[@]}
+source "$(dirname ${BASH_SOURCE[0]})/.common"
 
 z="--width=500 --window-icon=/usr/share/icons/gnome/48x48/apps/preferences-system-search.png"
 
@@ -13,7 +12,7 @@ createSymlinks(){
           fname=$(basename "$file")
           ln -s "$file" "${destDir}/${fname}"
         done
-        zenity $z --info --text="$len symlinks created in $destDir"
+        zenity $z --info --text="$fileListLen symlinks created in $destDir"
         exit 0
         ;;
     1)  zenity $z --warning --text="No directory selected. Exiting."
@@ -40,7 +39,7 @@ findSymlinks(){
   zenity --info --text "$sel\ncopied to clipboard"
 }
 
-if [ "x$len" = "x1" ]; then
+if [ "x$fileListLen" = "x1" ]; then
   file="${fileList[0]}"
   fname=$(basename "$file")
   # test -L "$file" || xtra=(false 2 "Get source file location")

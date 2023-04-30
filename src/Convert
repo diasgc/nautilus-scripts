@@ -230,7 +230,7 @@ fileListLen=${#fileList[@]}
 # verify mimetypes in filelist
 mimeList=()
 for f in "${fileList[@]}"; do
-  m=$(file -b --mime-type "$f")
+  m=$(mimetype -b "$f")
   case $m in
     "audio/"*) mimeList+=("audio");;
     "video/"*) mimeList+=("video");;
@@ -325,7 +325,7 @@ pfrac=$(( 100 / len ))
 for i in "${!fileList[@]}"; do
   step=$(( i * pfrac ))
   file="${fileList[$i]}"
-  mime2=$(file -b --mime-type "$file")
+  mime2=$(mimetype -b "$file")
   case ${mime2} in ${mime}*) $cmd "${file}" $sfx;; esac
   ((count+=1))
 done | zenity --progress --width=500 --title="Converting" \

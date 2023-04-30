@@ -314,14 +314,14 @@ do-ffmpeg(){
 }
 
 do-heif(){
-  iHead="# File: ${fname%.*} ($count of $len)\nSize: $(du -hs $file | awk '{print $1}')B"
+  iHead="# File: ${fname%.*} ($count of $fileListLen)\nSize: $(du -hs $file | awk '{print $1}')B"
   echo $iHead
   echo $(( step ))
   heif-enc $ffEncoder "$file"
 }
 
 count=1
-pfrac=$(( 100 / len ))
+pfrac=$(( 100 / fileListLen ))
 for i in "${!fileList[@]}"; do
   step=$(( i * pfrac ))
   file="${fileList[$i]}"

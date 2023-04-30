@@ -1,5 +1,4 @@
-#! /bin/bash
-#Title=Convert
+#!/bin/bash
 # diasgc 2023 April
 
 # debug script to ~/convert.log
@@ -16,9 +15,17 @@ err(){
   exit 1
 }
 
-test -z "$(command -v ffmpeg)" && err "ffmpeg"
-test -z "$(command -v heif-enc)" && err "libheif-examples"
-test -z "$(command -v inkscape)" && err "inkscape"
+# usage: checkPackages pkg1 pkg2 ...
+checkPackages(){
+  for pkg in "$@"; do
+    if [ -z "$(command -v $pkg)" ]; then
+      zenity --error --text "<b>$pkg is not installed</b>\n\nPlease run sudo apt install $pkg"
+      exit 1
+    fi
+  done
+}
+
+checkPackages ffmpeg libheif-examples inkscape
 
 debug2file=true
 

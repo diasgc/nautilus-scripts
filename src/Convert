@@ -1,6 +1,7 @@
 #!/bin/bash
-#Title=Convert
 # diasgc 2023 April
+
+
 source "$(dirname ${BASH_SOURCE[0]})/.common"
 
 checkDeps ffmpeg libheif-examples inkscape
@@ -31,7 +32,6 @@ opusOpts(){
 
 vorbisOpts(){
   keys=('-q' '-b' '-minrate' '-maxrate' '-cutoff')
-  
   opts=$(zenity zenity --width=500 --forms --title "x265" \
     --text "Vorbis ${zCodecTitle}" \
     --add-combo "VBR quality" --combo-values "default|$(rangeInt -1 10 1 '|')" \
@@ -177,12 +177,12 @@ ffProgress(){
   duration=$(ffprobe -v quiet -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
   timeStart=$(date +%s)
   fname=$(basename "$file")
-  iHead="# File: ${fname%.*} ($count of $fileListLen)\nSize: $(du -hs "$file" | awk '{print $1}')B Duration: $(date -d @$duration -u +%H:%M:%S)"
-  tpos=0
+  info="# File: ${fname%.*} ($count of $fileListLen)\nSize: $(du -hs "$file" | awk '{print $1}')B Duration: $(date -d @$duration -u +%H:%M:%S)"
   while [ -e /proc/$PID ]; do
-    tpos=$(grep 'out_time=' "$log" | tail -n1 | sed 's/out_time=//')
+    sleep 1
+    tenc=$(grep 'out_time=' "$log" | tail -n1 | sed 's/out_time=//')
     tsz=$(grep 'total_size=' "$log" | tail -n1 | sed 's/total_size=//') 
-    tpos=$(TZ=utc date -d "1970-01-01 $tpos" +'%s')
+    tpos=$(TZ=utc date -d "1970-01-01 $tenc" +'%s')
     ela=$(( $(date +%s) - timeStart ))
     if [ "x$tpos" == "x0" ]; then
       eta="n/a"
@@ -191,7 +191,8 @@ ffProgress(){
       eta=$(date -d @$(awk 'BEGIN{print int(('$ela' / '$tpos') * ('$duration' - '$tpos'))}') -u +%H:%M:%S)
       esz=$(awk 'BEGIN{print int('$tsz' * '$duration' / '$tpos')}' | numfmt --to=si --suffix=B)
     fi
-    echo "${iHead}\nElapsed: $(date -d @$ela -u +%H:%M:%S) ETA: $eta Est.Size: $esz"
+    echo "${info} Encoded: ${tenc}\nElapsed: $(date -d @$ela -u +%H:%M:%S) ETA: $eta Est.Size: $esz"
+    #echo $(( step + pfrac * tpos / duration )) 
     echo $(awk 'BEGIN{print int(('$step' + '$pfrac' * '$tpos' / '$duration'))}')
   done
 }
@@ -259,21 +260,59 @@ case "$mime" in
   *) zenity --error --text="\"$mime\" not supported yet"; exit 1;;
 esac
 
-op=$(zenity --list --radiolist --title "Convert to" --text "$mime" --column "" --column "Format" ${ops[@]})
+op=$(zenity --list --radiolist --title "Convert to" \
+      --text "$mime" --column "" --column "Format" \
+      ${ops[@]} \
+    )
 
 case "$op" in
-  heic) cmd="do-heif"; ffEncoder="$(heicopts)"; ffSufix=""; ffFormat="heic";;
-  avif) cmd="do-heif"; ffEncoder="-A"; ffSufix=""; ffFormat="avif";;
-  avif/libaom) cmd="do-ffmpeg"; ffEncoder="-c:v libaom-av1 -still-picture true $(aomOpts)"; ffSufix=""; ffFormat="avif";;
-  hevc) cmd="do-ffmpeg"; ffEncoder="-c:v libx265 $(x265opts)"; ffSufix="-HEVC"; ffFormat="mp4";;
-  h264) cmd="do-ffmpeg"; ffEncoder="-c:v libx264"; ffSufix="-H264"; ffFormat="mp4";;
-  xvid) cmd="do-ffmpeg"; ffEncoder="-c:v libxvid"; ffSufix="-xvid"; ffFormat="mp4";;
-  flac) cmd="do-ffmpeg"; ffEncoder="-c:a flac $(flacOpts)"; ffSufix=""; ffFormat="flac";;
-  mp3)  cmd="do-ffmpeg"; ffEncoder="-c:a libmp3lame"; ffSufix=""; ffFormat="mp3";;
-  m4a)  cmd="do-ffmpeg"; ffEncoder="-c:a aac"; ffSufix=""; ffFormat="m4a";;
-  ogg)  cmd="do-ffmpeg"; ffEncoder="-c:a libvorbis $(vorbisOpts)"; ffSufix=""; ffFormat="ogg";;
-  opus) cmd="do-ffmpeg"; ffEncoder="-c:a libopus $(opusOpts)"; ffSufix="-opus"; ffFormat="ogg";;
-  *) cmd="echo";;
+  heic) cmd="do-heif"
+        ffEncoder="$(heicopts)"
+        ffSufix="";       ffFormat="heic"
+        ;;
+  avif) cmd="do-heif"
+        ffEncoder="-A"
+        ffSufix="";       ffFormat="avif"
+        ;;
+  avif/libaom) cmd="do-ffmpeg"
+        ffEncoder="-c:v libaom-av1 -still-picture true $(aomOpts)"
+        ffSufix="";       ffFormat="avif"
+        ;;
+  hevc) cmd="do-ffmpeg"
+        ffEncoder="-c:v libx265 $(x265opts)"
+        ffSufix="-HEVC";  ffFormat="mp4"
+        ;;
+  h264) cmd="do-ffmpeg"
+        ffEncoder="-c:v libx264"
+        ffSufix="-H264";  ffFormat="mp4"
+        ;;
+  xvid) cmd="do-ffmpeg"
+        ffEncoder="-c:v libxvid"
+        ffSufix="-xvid";  ffFormat="mp4"
+        ;;
+  flac) cmd="do-ffmpeg"
+        ffEncoder="-c:a flac $(flacOpts)"
+        ffSufix="";       ffFormat="flac"
+        ;;
+  mp3)  cmd="do-ffmpeg"
+        ffEncoder="-c:a libmp3lame"
+        ffSufix="";       ffFormat="mp3"
+        ;;
+  m4a)  cmd="do-ffmpeg"
+        ffEncoder="-c:a aac"
+        ffSufix="";       ffFormat="m4a"
+        ;;
+  ogg)  cmd="do-ffmpeg"
+        ffEncoder="-c:a libvorbis $(vorbisOpts)"
+        ffSufix="";       ffFormat="ogg"
+        ;;
+  opus) cmd="do-ffmpeg"
+        ffEncoder="-c:a libopus $(opusOpts)"
+        ffSufix="-opus";  ffFormat="ogg"
+        ;;
+
+  *) exit;;
+
 esac
 
 count=1
@@ -283,8 +322,8 @@ trap trapExit INT TERM EXIT
 for i in "${!fileList[@]}"; do
   step=$(( i * pfrac ))
   file="${fileList[$i]}"
-  mime2=$(mimetype -b "$file")
-  case ${mime2} in ${mime}*) $cmd "${file}" $sfx;; esac
+  mime2=$(mimetype -b "${file}")
+  case ${mime2} in ${mime}*) ${cmd} "${file}" ${sfx};; esac
   (( count+=1 ))
 done | zenity --progress --width=500 --title="Converting" \
   --text="Initializing please wait..." \

@@ -1,0 +1,148 @@
+#!/bin/bash
+
+dialogFormat(){
+  local out="$(awk '/format /{found=1} found' <<< $(youtube-dl --list-formats $url || sendMsg "Fail to resolve Url.\nAborting.") | tail +2)"
+  out=($(awk -v c=5 'BEGIN{FS=OFS=" "} {for(i=NF+1; i<=c; i++) $i="-"} 1' <<<"$out"))
+  format=$(zenity --width=400 --height=400 --list --title="Available Formats" --text="" \
+    --column="Format" --column="Extension" --column="Resolution" --column="Notes" --column="best" \
+    ${out[@]})
+}
+
+
+ffProgress(){
+  duration=$(ffprobe -v quiet -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$ffurl")
+  if [ -n "$end" ]; then
+    duration=$(TZ=utc date -d "1970-01-01 00:$end" +'%s')
+  fi  
+  if [ -n "$start" ]; then
+    stt=$(TZ=utc date -d "1970-01-01 00:$start" +'%s')
+    duration=$(( duration - stt))
+  fi
+
+  timeStart=$(date +%s)
+  info="# File: ${output}\nDuration: $(date -d @$duration -u +%H:%M:%S)"
+  while [ -e /proc/$PID ]; do
+    sleep 1
+    tenc=$(grep 'out_time=' "$log" | tail -n1 | sed 's/out_time=//')
+    tsz=$(grep 'total_size=' "$log" | tail -n1 | sed 's/total_size=//') 
+    tpos=$(TZ=utc date -d "1970-01-01 $tenc" +'%s')
+    ela=$(( $(date +%s) - timeStart ))
+    if [ "x$tpos" == "x0" ]; then
+      eta="n/a"
+      esz="n/a"
+    else
+      eta=$(date -d @$(awk 'BEGIN{print int(('$ela' / '$tpos') * ('$duration' - '$tpos'))}') -u +%H:%M:%S)
+      esz=$(awk 'BEGIN{print int('$tsz' * '$duration' / '$tpos')}' | numfmt --to=si --suffix=B)
+    fi
+    echo "${info} Encoded: ${tenc}\nElapsed: $(date -d @$ela -u +%H:%M:%S) ETA: $eta Est.Size: $esz"
+    echo $(awk 'BEGIN{print int(('$step' + '$pfrac' * '$tpos' / '$duration'))}')
+  done
+}
+
+abort(){
+  if [ -e /proc/$PID ]; then
+    killall ffmpeg
+    rm -f $log
+    zenity --error --text "$errMsg"
+  fi
+  exit
+}
+
+sendMsg(){
+  echo "# $1"
+  errMsg="$1"
+  exit 1
+}
+
+
+doFFmpeg(){
+  errMsg="Aborted by user."
+  meta="${meta} -metadata description=${url}"
+  ffurl="$(youtube-dl --youtube-skip-dash-manifest --add-metadata -f ${format} -g ${url})"
+
+  test -z "$ffurl" && sendMsg "No Url found, aborting."
+  
+  echo "# Found url."
+
+  if [ -z "$res" ]; then
+    res=($( ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of default=nw=1:nk=1 "$ffurl" ))
+    res=$(( ${res[0]} > ${res[1]} ? ${res[1]} : ${res[0]} ))
+    lab=( SD1 SD2 SD3 SD4 HD FHD UHD 8K )
+    lim=( 240 360 480 720 1080 2146 4320 )
+    r="8K"
+    for i in ${!lab[@]}; do
+    test $res -lt ${lim[$i]} && r=${lab[$i]} && break
+    done
+    sfx="$r$sfx"
+  fi
+
+  if [ -n "${clipa}${clipb}" ]; then
+    test -z "$clipa" && clipa=120
+    test -z "$clipb" && clipb=10
+    a1="-vf select='lt(mod(t\,$clipa)\,$clipb)',setpts=N/FRAME_RATE/TB -af aselect='lt(mod(t\,$clipa)\,$clipb)',asetpts=N/SR/TB ${a1}"
+    sfx="C${sfx}"
+  fi
+
+  meta="-metadata album_artist=${tag} -metadata description=${url}"
+  tag="${tag}@$(echo "$url" | awk -F/ '{print $3}' | awk -F. '{print substr($(NF-1),1,2)}')"
+  id=$(youtube-dl --get-id ${url} || sendMsg "Fail to get video id, aborting.")
+  output="${tag}-${id}-${sfx}.mp4"
+  
+  log="/tmp/yt-dl.tmp"
+  ffcmd="${a0} -i ${ffurl} -progress ${log} ${a1} ${meta} ${output}"
+
+  pfrac=100
+  step=0
+  timeStart=$(date +%s)
+  ffmpeg -hide_banner -v quiet ${ffcmd} & PID=$! && ffProgress
+}
+
+
+
+
+
+
+# Main Program
+
+errMsg="Unknown error, aborting!"
+trap abort INT TERM EXIT
+
+opts=$(zenity zenity --width=500 --forms --title "Youtube-dl" \
+  --text "Enter URL" \
+  --add-entry "Url (required)" \
+  --add-entry "Tag (required)" \
+  --add-entry "Quality" \
+  --add-entry "From Time" \
+  --add-entry "To Time" \
+  --add-entry "Suffix" \
+  --add-combo "Encoder" --combo-values "default|libx265|hevc_vaapi|avif|h264|h266" \
+  --add-combo "Clip interval (s)" --combo-values "default|10|15|20|30" \
+  --add-combo "Clip length (s)" --combo-values "default|10|15|20|30" \
+)
+
+values=($(sed 's/||/| |/g;s/ /default/g;s/|/\n/g' <<< $opts))
+keys=( url tag format start end sfx encoder clipa clipb )
+
+for i in "${!values[@]}"; do
+  test "x${values[$i]}" == "xdefault" || eval "${keys[${i}]}=${values[${i}]}"
+done
+
+test -z "$url" && sendMsg "Url required! Exiting."
+test -z "$tag" && sendMsg "Tag required! Exiting."
+test -z "$encoder" && encoder="libx265 -b:a 56k"
+dialogFormat
+test -z "$sfx" && sfx="265"
+
+case "$encoder" in *hevc_vaapi*)
+  a0="-y -init_hw_device vaapi=amd:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device amd -filter_hw_device amd"
+  a1="-c:v ${encoder} -rc_mode ICQ -profile main -tier high";;
+  *) a1="-c:v ${encoder}";;
+esac
+
+test -n "${end}" && a1="-to ${end} ${a1}"
+test -n "${start}" && a1="-ss ${start} ${a1}"
+
+doFFmpeg | zenity --progress --width=500 --title="Downloading" \
+  --text="Initializing please wait..." \
+  --percentage=0 \
+  --auto-close --auto-kill

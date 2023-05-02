@@ -1,0 +1,9 @@
+#!/bin/bash
+# diasgc Metadata script
+
+source "$(dirname ${BASH_SOURCE[0]})/.common"
+
+checkDeps ffmpeg
+file="${fileList[0]}"
+out=($(ffprobe -v quiet -show_format -of flat "$file" | sed 's/format\.//g;s/=/\n/g;s/[[:space:]]+//g'))
+zenity --list --column "Property" --column "Value" ${out[@]}

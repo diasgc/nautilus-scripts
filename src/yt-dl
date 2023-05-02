@@ -1,5 +1,9 @@
 #!/bin/bash
 
+source "$(dirname ${BASH_SOURCE[0]})/.common"
+
+checkDeps ffmpeg youtube-dl
+
 dialogFormat(){
   local out="$(awk '/format /{found=1} found' <<< $(youtube-dl --list-formats $url || sendMsg "Fail to resolve Url.\nAborting.") | tail +2)"
   out=($(awk -v c=5 'BEGIN{FS=OFS=" "} {for(i=NF+1; i<=c; i++) $i="-"} 1' <<<"$out"))
@@ -7,7 +11,6 @@ dialogFormat(){
     --column="Format" --column="Extension" --column="Resolution" --column="Notes" --column="best" \
     ${out[@]})
 }
-
 
 ffProgress(){
   duration=$(ffprobe -v quiet -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$ffurl")

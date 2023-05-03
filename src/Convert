@@ -231,6 +231,7 @@ trapExit(){
 
 
 # Main program
+trap abort INT TERM EXIT
 
 # verify mimetypes in filelist
 mimeList=()
@@ -264,7 +265,7 @@ ffopt1="-hide_banner -loglevel quiet"
 ffopt2="-movflags use_metadata_tags"
 
 case "$mime" in
-  "image") ops=(true "heic" false "avif" false "avif/aom" false "png" false "img-resize" false "img-rename");;
+  "image") ops=(true "heic" false "avif" false "avif/aom" false "png");;
   "video") ops=(true "hevc" false "xvid" false "h264");;
   "audio") ops=(true "mp3" false "m4a" false "flac" false "ogg" false "opus");;
   *) zenity --error --text="\"$mime\" not supported yet"; exit 1;;
@@ -327,7 +328,7 @@ esac
 
 count=1
 pfrac=$(( 100 / fileListLen ))
-trap abort INT TERM EXIT
+
 
 for i in "${!fileList[@]}"; do
   step=$(( i * pfrac ))

@@ -1,15 +1,15 @@
 #!/bin/bash
 
-source "$(dirname ${BASH_SOURCE[0]})/.common"
+root="$(dirname $(readlink .f ${BASH_SOURCE[0]}))"
+source "$root/.common"
+source "$root/.ffutils"
 
 checkDeps ffmpeg youtube-dl
 
 dialogFormat(){
   local out="$(awk '/format /{found=1} found' <<< $(youtube-dl --list-formats $url || sendMsg "Fail to resolve Url.\nAborting.") | tail +2)"
-  out=($(awk -v c=5 'BEGIN{FS=OFS=" "} {for(i=NF+1; i<=c; i++) $i="-"} 1' <<<"$out"))
   format=$(zenity --width=400 --height=400 --list --title="Available Formats" --text="" \
-    --column="Format" --column="Extension" --column="Resolution" --column="Notes" --column="best" \
-    ${out[@]})
+    --column="Format" --column="Extension" --column="Resolution" $(awk '{print $1,$2,$3}' <<<"$out"))
 }
 
 ffProgress(){
@@ -69,7 +69,7 @@ doFFmpeg(){
 
   if [ -z "$res" ]; then
     res=($( ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of default=nw=1:nk=1 "$ffurl" ))
-    res=$(( ${res[0]} > ${res[1]} ? ${res[1]} : ${res[0]} ))
+    res=$(( ${res[0]} > ${res[1]} ? ${res[0]} : ${res[1]} ))
     lab=( SD1 SD2 SD3 SD4 HD FHD UHD 8K )
     lim=( 240 360 480 720 1080 2146 4320 )
     r="8K"

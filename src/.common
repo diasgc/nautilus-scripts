@@ -3,7 +3,7 @@
 
 startDebug(){
   debug2file=true
-  export logfile="$HOME/convert.log"
+  export logfile="${fileListDir}/convert.log"
   exec 22>$logfile &>>$logfile
   BASH_XTRACEFD=22
   set -x

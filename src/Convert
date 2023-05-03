@@ -20,7 +20,9 @@ log=/tmp/ffmpeg.log
 
 do-ffmpeg(){
   timeStart=$(date +%s)
+  duration=$(ffprobeDuration "$file")
   fname=$(basename "$file")
+  fsize=$(fileSize "$file")
   ffmpeg ${ffopt1} -i "$file" -progress ${log} ${ffopt2} ${ffEncoder} "${file%.*}${ffSufix}.${ffFormat}" & PID=$! && ffProgress
   #rm -f $log
 }

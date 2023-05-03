@@ -12,36 +12,6 @@ dialogFormat(){
     --column="Format" --column="Extension" --column="Resolution" $(awk '{print $1,$2,$3}' <<<"$out"))
 }
 
-ffProgress(){
-  duration=$(ffprobe -v quiet -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$ffurl")
-  if [ -n "$end" ]; then
-    duration=$(TZ=utc date -d "1970-01-01 00:$end" +'%s')
-  fi  
-  if [ -n "$start" ]; then
-    stt=$(TZ=utc date -d "1970-01-01 00:$start" +'%s')
-    duration=$(( duration - stt))
-  fi
-
-  timeStart=$(date +%s)
-  info="# File: ${output}\nDuration: $(date -d @$duration -u +%H:%M:%S)"
-  while [ -e /proc/$PID ]; do
-    sleep 1
-    tenc=$(grep 'out_time=' "$log" | tail -n1 | sed 's/out_time=//')
-    tsz=$(grep 'total_size=' "$log" | tail -n1 | sed 's/total_size=//') 
-    tpos=$(TZ=utc date -d "1970-01-01 $tenc" +'%s')
-    ela=$(( $(date +%s) - timeStart ))
-    if [ "x$tpos" == "x0" ]; then
-      eta="n/a"
-      esz="n/a"
-    else
-      eta=$(date -d @$(awk 'BEGIN{print int(('$ela' / '$tpos') * ('$duration' - '$tpos'))}') -u +%H:%M:%S)
-      esz=$(awk 'BEGIN{print int('$tsz' * '$duration' / '$tpos')}' | numfmt --to=si --suffix=B)
-    fi
-    echo "${info} Encoded: ${tenc}\nElapsed: $(date -d @$ela -u +%H:%M:%S) ETA: $eta Est.Size: $esz"
-    echo $(awk 'BEGIN{print int(('$step' + '$pfrac' * '$tpos' / '$duration'))}')
-  done
-}
-
 abort(){
   if [ -e /proc/$PID ]; then
     killall ffmpeg
@@ -96,6 +66,22 @@ doFFmpeg(){
 
   pfrac=100
   step=0
+
+  # get duration
+  duration=$(ffprobeDuration "$ffurl")
+  # then adjust duration to start/end values
+  if [ -n "$end" ]; then
+    duration=$(TZ=utc date -d "1970-01-01 00:$end" +'%s')
+  fi  
+  if [ -n "$start" ]; then
+    stt=$(TZ=utc date -d "1970-01-01 00:$start" +'%s')
+    duration=$(( duration - stt))
+  fi
+
+  # required vars to ffProgress
+  fname="${output}"
+  fsize="-"
+  count=1
   timeStart=$(date +%s)
   ffmpeg -hide_banner -v quiet ${ffcmd} & PID=$! && ffProgress
 }

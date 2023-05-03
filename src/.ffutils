@@ -19,6 +19,11 @@ opusOpts(){
   echo $(parseValues)}
 }
 
+
+ffprobeDuration(){
+    echo $(ffprobe -v quiet -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$1")
+}
+
 vorbisOpts(){
   keys=('-q' '-b' '-minrate' '-maxrate' '-cutoff')
   opts=$(zenity zenity --width=500 --forms --title "x265" \
@@ -162,11 +167,12 @@ x265opts(){
   echo $(parseValues)
 }
 
+fileSize(){
+  echo $(du -hs "$1" | awk '{print $1}')B
+}
+
 ffProgress(){
-  duration=$(ffprobe -v quiet -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$file")
-  timeStart=$(date +%s)
-  fname=$(basename "$file")
-  info="# File: ${fname%.*} ($count of $fileListLen)\nSize: $(du -hs "$file" | awk '{print $1}')B Duration: $(date -d @$duration -u +%H:%M:%S)"
+  info="# File: ${fname%.*} ($count of $fileListLen)\nSize: $fsize Duration: $(date -d @$duration -u +%H:%M:%S)"
   while [ -e /proc/$PID ]; do
     sleep 1
     tenc=$(grep 'out_time=' "$log" | tail -n1 | sed 's/out_time=//')

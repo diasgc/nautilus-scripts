@@ -4,6 +4,8 @@ root="$(dirname $(readlink .f ${BASH_SOURCE[0]}))"
 source "$root/.common"
 source "$root/.ffutils"
 
+startDebug
+
 checkDeps ffmpeg youtube-dl
 
 dialogFormat(){
@@ -75,7 +77,7 @@ doFFmpeg(){
   fi  
   if [ -n "$start" ]; then
     stt=$(TZ=utc date -d "1970-01-01 00:$start" +'%s')
-    duration=$(( duration - stt))
+    duration=$(( duration - stt ))
   fi
 
   # required vars to ffProgress
@@ -109,10 +111,11 @@ opts=$(zenity zenity --width=500 --forms --title "Youtube-dl" \
   --add-combo "Clip length (s)" --combo-values "default|10|15|20|30" \
 )
 
-values=($(sed 's/||/| |/g;s/ /default/g;s/|/\n/g' <<< $opts))
+values=($(sed -e 's,||,|default|,g;s, ,default,g;s,|,\n,g' <<< $opts))
 keys=( url tag format start end sfx encoder clipa clipb )
 
 for i in "${!values[@]}"; do
+  echo "Testing ${keys[$i]}=${values[$i]}"
   test "x${values[$i]}" == "xdefault" || eval "${keys[${i}]}=${values[${i}]}"
 done
 
@@ -124,7 +127,7 @@ test -z "$encoder" && encoder="libx265 $(x265opts) -b:a 56k "
 
 case "$encoder" in *hevc_vaapi*)
   a0="-y -init_hw_device vaapi=amd:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device amd -filter_hw_device amd"
-  a1="-c:v ${encoder} -rc_mode ICQ -profile main -tier high";;
+  a1="-c:v ${encoder} -rc_mode auto -profile main -tier high";;
   *) a1="-c:v ${encoder}";;
 esac
 

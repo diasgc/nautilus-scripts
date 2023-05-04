@@ -11,7 +11,6 @@ echo $root
 
 checkDeps ffmpeg libheif-examples inkscape
 
-zCodecTitle=" Encoder Options (or leave empty for default)"
 log=/tmp/ffmpeg.log
 
 

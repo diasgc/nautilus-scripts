@@ -1,5 +1,8 @@
 #!/bin/bash
 
+x265presets="ultrafast|superfast|veryfast|faster|fast|medium|slow|slower|veryslow|placebo"
+x265tunes="psnr|ssim|grain|zerolatency|fastdecode"
+bitrates="default|24k|32k|48k|56k|64k|80k|96k|128k|192k|224k|256k"
 
 opusOpts(){
   keys=('-vbr' '-compression_level' '-frame_duration' '-packet_loss' '-application' '-cutoff' '-mapping_family' '-apply_phase_inv' '-b:a ')

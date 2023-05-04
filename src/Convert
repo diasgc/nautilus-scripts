@@ -11,9 +11,6 @@ echo $root
 
 checkDeps ffmpeg libheif-examples inkscape
 
-x265presets="ultrafast|superfast|veryfast|faster|fast|medium|slow|slower|veryslow|placebo"
-x265tunes="psnr|ssim|grain|zerolatency|fastdecode"
-bitrates="default|24k|32k|48k|56k|64k|80k|96k|128k|192k|224k|256k"
 zCodecTitle=" Encoder Options (or leave empty for default)"
 log=/tmp/ffmpeg.log
 

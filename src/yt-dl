@@ -118,9 +118,9 @@ done
 
 test -z "$url" && sendMsg "Url required! Exiting."
 test -z "$tag" && sendMsg "Tag required! Exiting."
-test -z "$encoder" && encoder="libx265 -b:a 56k"
 dialogFormat
 test -z "$sfx" && sfx="265"
+test -z "$encoder" && encoder="libx265 $(x265opts) -b:a 56k "
 
 case "$encoder" in *hevc_vaapi*)
   a0="-y -init_hw_device vaapi=amd:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device amd -filter_hw_device amd"

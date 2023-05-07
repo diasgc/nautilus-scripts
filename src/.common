@@ -39,7 +39,7 @@ endDebug(){
 }
 
 zen2arr(){
-  echo "$((tr '|' '\n' | sed 's,^[ ]*$,'$2',g') <<<$1)"
+  echo "$((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$1)"
 }
 
 

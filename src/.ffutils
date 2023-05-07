@@ -185,12 +185,13 @@ heicopts(){
 }
 
 x265opts(){
-  keys=('-preset' '-tune' '-crf')
+  keys=('-preset' '-tune' '-crf' '-b:a')
   opts=$(zenity zenity --width=500 --forms --title "x265" \
     --text "x265 ${zCodecTitle}" \
     --add-combo "Preset" --combo-values "default|${x265presets}" \
     --add-combo "Tune" --combo-values "default|${x265tunes}" \
     --add-combo "CRF" --combo-values "default|$(rangeInt 0 50 2 '|')" \
+    --add-combo "Audio Bitrate" --combo-values "$bitrates" \
   )
   values=($(sed 's/ /default/g;s/|/\n/g' <<< $opts))
   echo $(parseValues)

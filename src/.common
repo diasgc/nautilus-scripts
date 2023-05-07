@@ -38,6 +38,9 @@ endDebug(){
   test $debug2file && set +x
 }
 
+zen2arr(){
+  echo "$((tr '|' '\n' | sed 's,^[ ]*$,'$2',g') <<<$1)"
+}
 
 
 

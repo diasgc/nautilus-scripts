@@ -7,8 +7,6 @@ source "$root/.ffutils"
 
 startDebug
 
-echo $root
-
 checkDeps ffmpeg libheif-examples inkscape
 
 log=/tmp/ffmpeg.log
@@ -31,6 +29,7 @@ do-heif(){
 }
 
 abort(){
+  sleep 2
   if [ -e /proc/$PID ]; then
     killall ffmpeg
     rm -f $log
@@ -39,15 +38,6 @@ abort(){
   endDebug
   exit
 }
-
-trapExit(){
-  killall ffmpeg heif-enc
-  test -f "$log" && rm -f $log
-  endDebug
-  zenity --error --text "Aborted!"
-  exit
-}
-
 
 # Main program
 trap abort INT TERM EXIT

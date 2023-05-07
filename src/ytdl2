@@ -1,0 +1,22 @@
+#!/bin/bash
+# .id-desc: Youtuble-dl integration into nautilus scripts
+
+root="$(dirname $(readlink .f ${BASH_SOURCE[0]}))"
+source "$root/.common"
+source "$root/.ffutils"
+
+checkDeps ffmpeg youtube-dl yad
+
+opts=$(zenity --width=500 --forms --title "Youtube-dl" \
+  --forms\
+    --text "Enter URL" \
+    --add-entry "Url (required)" \
+    --add-entry "Tag (required)" \
+    --add-entry "Quality" \
+    --add-entry "From Time" \
+    --add-entry "To Time" \
+    --add-entry "Suffix" \
+    --add-combo "Encoder" --combo-values "default|libx265|hevc_vaapi|avif|h264|h266" \
+    --add-combo "Clip interval (s)" --combo-values "default|10|15|20|30" \
+    --add-combo "Clip length (s)" --combo-values "default|10|15|20|30" \
+)

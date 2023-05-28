@@ -1,0 +1,92 @@
+#!/bin/bash
+
+root="$(dirname $(readlink .f ${BASH_SOURCE[0]}))"
+source "$root/.common"
+source "$root/.ffutils"
+
+# uncomment for debugging
+#startDebug
+
+ytdl="yt-dlp"
+checkDeps ffmpeg youtube-dl
+
+abort(){
+  if [ -e /proc/$PID ]; then
+    killall ffmpeg
+    rm -f $log
+    zenity --info --text "$errMsg"
+  fi
+  exit
+}
+
+trap abort INT TERM EXIT
+
+if [ -f "$fileListDir/res.json" ]; then
+  tag=$(jq ".tag" "$fileListDir/res.json" | sed 's/"//g')
+  optTag=
+  keyTag=
+else
+  optTag='--add-entry "Tag (required)"'
+  keyTag='tag'
+fi
+
+opts=$(zenity --width=500 --forms --title "YT-DL+" \
+  --text "Enter URL" \
+  --add-entry "Url (required)" $optTag \
+  --add-combo "Resolution" --combo-values "default|list" \
+  --add-combo "Clip Options" --combo-values "default|crop|multiple" \
+  --add-combo "Encoder Options" --combo-values "default|advanced" \
+  --extra-button "Advanced"
+)
+
+if [ "x$opts" = "xAdvanced" ]; then
+  # todo
+  exit 0  
+fi
+
+values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$opts))
+keys=( url $keyTag optRes optClip optEncoder)
+
+for i in "${!values[@]}"; do
+  test "x${values[$i]}" == "xdefault" || eval "${keys[${i}]}=${values[${i}]}"
+done
+
+if [ "x$url" = "x" ]; then
+  errMsg "Url must be defined"
+fi
+
+if [ "x$tag" = "x" ]; then
+  errMsg "Tag name must be defined"
+fi
+
+if [ "x$optRes" = "xlist" ]; then
+
+fi
+
+if [ "x$optClip" != "xcrop" ]; then
+  start=; end=
+  opts=$(zenity --width=500 --forms --title "YT-DL+" \
+    --text "Clip Options" \
+    --add-entry "From Time" \
+    --add-entry "To Time"
+  )
+  values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$opts))
+  test "x${values[0]}" == "xdefault" || start="${values[0]}"
+  test "x${values[1]}" == "xdefault" || end="${values[1]}"
+  echo "s:$start e:$end"
+elif [ "x$optClip" != "xmultiple" ]; then
+  start=; end=
+  opts=$(zenity --width=500 --forms --title "YT-DL+" \
+    --text "Clip Options" \
+    --add-entry "From Time" \
+    --add-entry "To Time"
+  )
+  values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$opts))
+  test "x${values[0]}" == "xdefault" || start="${values[0]}"
+  test "x${values[1]}" == "xdefault" || end="${values[1]}"
+  echo "s:$start e:$end"
+fi
+
+#keys=( url $keyTag start end sfx clipa clipb encoder format)
+
+

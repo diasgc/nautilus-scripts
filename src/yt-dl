@@ -133,6 +133,8 @@ values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$opts))
 #values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$opts))
 keys=( url $keyTag start end sfx clipa clipb encoder format)
 
+case $url in *twitter*) test -n "$(grep 'twitter' ${HOME}/.netrc)" && ytdl="$ytdl -n";; esac
+
 for i in "${!values[@]}"; do
   echo "Testing ${keys[$i]}=${values[$i]}"
   test "x${values[$i]}" == "xdefault" || eval "${keys[${i}]}=${values[${i}]}"

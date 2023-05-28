@@ -7,6 +7,16 @@ bitrates="default|24k|32k|48k|56k|64k|80k|96k|128k|192k|224k|256k"
 vbitrates="default|128k|256k|320k|480k|512k|640k|720k|860k|900k|1000k|1500k|2000k|2500k|3000k"
 zCodecTitle=" Encoder Options (or leave empty for default)"
 
+jpegOpts(){
+  keys=('-q:v')
+  opts=$(zenity zenity --width=500 --forms --title "x265" \
+    --text "Jpeg ${zCodecTitle}" \
+    --add-combo "Quality" --combo-values "default|$(rangeInt 1 31 1 '|')" \
+  )
+  values=($(sed 's/ /default/g;s/|/\n/g' <<< $opts))
+  echo $(parseValues)
+}
+
 opusOpts(){
   keys=('-vbr' '-compression_level' '-frame_duration' '-packet_loss' '-application' '-cutoff' '-mapping_family' '-apply_phase_inv' '-b:a ')
   opts=$(zenity zenity --width=500 --forms --title "x265" \
@@ -22,7 +32,7 @@ opusOpts(){
     --add-combo "Bitrate" --combo-values "$bitrates" \
   )
   values=($(sed 's/ /default/g;s/|/\n/g' <<< $opts))
-  echo $(parseValues)}
+  echo $(parseValues)
 }
 
 hevcvaapiOpts(){
@@ -45,7 +55,7 @@ hevcvaapiOpts(){
     --add-combo "Bitrate" --combo-values "$vbitrates" \
   )
   values=($(sed 's/ /default/g;s/|/\n/g' <<< $opts))
-  echo $(parseValues)}
+  echo $(parseValues)
 }
 
 

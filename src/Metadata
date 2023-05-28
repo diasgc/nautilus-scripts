@@ -1,7 +1,8 @@
 #!/bin/bash
 # diasgc Metadata script
 
-source "$(dirname ${BASH_SOURCE[0]})/.common"
+root="$(dirname $(readlink .f ${BASH_SOURCE[0]}))"
+source "$root/.common"
 
 checkDeps ffmpeg
 

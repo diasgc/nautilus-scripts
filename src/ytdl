@@ -5,7 +5,7 @@ source "$root/.common"
 source "$root/.ffutils"
 
 # uncomment for debugging
-#startDebug
+# startDebug
 
 ytdl="yt-dlp"
 checkDeps ffmpeg youtube-dl
@@ -37,32 +37,24 @@ sendMsg(){
 
 
 doFFmpeg(){
+  json="$($ytdl -j $url)"
   errMsg="Aborted by user."
-  meta="${meta} -metadata description=${url}"
-  if [ "x$format" == "xdefault" ]; then
-    format=""
-  else
-    format="-f $format"
-  fi
-  ffurl="$($ytdl --youtube-skip-dash-manifest --add-metadata ${format} -g ${url})"
+  
+  ffurl=$(jq '.url' <<<$json | sed 's/"//g' | head -n1)
+  id=$(jq '.id' <<<$json | sed 's/"//g' | head -n1)
 
   test -z "$ffurl" && sendMsg "No Url found, aborting."
   
   echo "# Found url."
 
-  if [ -z "$res" ]; then
-    #res=($( ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of default=nw=1:nk=1 "$ffurl" ))
-    #res=$(( ${res[0]} > ${res[1]} ? ${res[0]} : ${res[1]} ))
-    res=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=nw=1:nk=1 "$ffurl" | head -n1)
-    lab=( SD1 SD2 SD3 SD4 HD FHD UHD 8K )
-    lim=( 240 360 480 720 1080 2146 4320 )
-    r="8K"
-    for i in ${!lab[@]}; do
-    test $res -lt ${lim[$i]} && r=${lab[$i]} && break
-    done
-    sfx="$r$sfx"
-  fi
-
+  res=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=nw=1:nk=1 "$ffurl" | head -n1)
+  lab=( SD1 SD2 SD3 SD4 HD FHD UHD 8K )
+  lim=( 240 360 480 720 1080 2146 4320 )
+  r="8K"
+  for i in ${!lab[@]}; do
+   test $res -lt ${lim[$i]} && r=${lab[$i]} && break
+  done
+  
   if [ -n "${clipa}${clipb}" ]; then
     test -z "$clipa" && clipa=120
     test -z "$clipb" && clipb=10
@@ -72,7 +64,6 @@ doFFmpeg(){
 
   meta="-movflags +use_metadata_tags -metadata album_artist=${tag} -metadata url=${url}"
   tag="${tag}@$(echo "$url" | awk -F/ '{print $3}' | awk -F. '{print substr($(NF-1),1,2)}')"
-  id=$($ytdl --get-id ${url} || sendMsg "Fail to get video id, aborting.")
   output="${tag}-${id}-${sfx}.mp4"
   
   log="/tmp/yt-dl.tmp"
@@ -113,25 +104,26 @@ if [ -f "$fileListDir/res.json" ]; then
   optTag=
   keyTag=
 else
-  optTag='--add-entry "Tag (required)"'
+  optTag=("--add-entry" "Tag (required)")
   keyTag='tag'
 fi
 
+# $(x265opts)
+encoderOpts=
+
+
 opts=$(zenity --width=500 --forms --title "Youtube-dl" \
   --text "Enter URL" \
-  --add-entry "Url (required)" $optTag \
+  --add-entry "Url (required)" ${optTag[@]} \
   --add-entry "From Time" \
   --add-entry "To Time" \
   --add-entry "Suffix" \
   --add-combo "Clip interval (s)" --combo-values "default|10|15|20|30" \
-  --add-combo "Clip length (s)" --combo-values "default|5|7|10|15|20|30" \
-  --add-combo "Encoder" --combo-values "default|libx265|hevc_vaapi|avif|h264|h266" \
-  --add-combo "Format" --combo-values "default|240p|360p|480p|720p|1080p|2k|4k|8k" \
+  --add-combo "Clip length (s)" --combo-values "default|5|7|10|15|20|30"
 )
 
 values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$opts))
-#values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$opts))
-keys=( url $keyTag start end sfx clipa clipb encoder format)
+keys=( url $keyTag start end sfx clipa clipb )
 
 for i in "${!values[@]}"; do
   echo "Testing ${keys[$i]}=${values[$i]}"
@@ -140,16 +132,10 @@ done
 
 test -z "$url" && sendMsg "Url required! Exiting."
 test -z "$tag" && sendMsg "Tag required! Exiting."
-dialogFormat
+format=
 test -z "$sfx" && sfx="265"
-test -z "$encoder" && encoder="libx265 $(x265opts) -b:a 56k "
-
-case "$encoder" in *hevc_vaapi*)
-  a0="-y -init_hw_device vaapi=amd:/dev/dri/renderD128 -hwaccel vaapi -hwaccel_output_format vaapi -hwaccel_device amd -filter_hw_device amd"
-  a1="-c:v ${encoder} -rc_mode auto -profile main -tier high";;
-  *) a1="-c:v ${encoder}";;
-esac
-
+encoder="libx265 $encoderOpts -b:a 56k "
+a1="-c:v $encoder"
 test -n "${end}" && a1="-to ${end} ${a1}"
 test -n "${start}" && a1="-ss ${start} ${a1}"
 

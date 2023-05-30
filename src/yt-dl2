@@ -19,12 +19,48 @@ abort(){
   exit
 }
 
+setClip(){
+  start=; end=
+  opts=$(zenity --width=500 --forms --title "YT-DL+" \
+    --text "Clip Options" \
+    --add-entry "From Time" \
+    --add-entry "To Time"
+  )
+  values=($( (tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$opts ))
+  test "x${values[0]}" == "xdefault" || start="${values[0]}"
+  test "x${values[1]}" == "xdefault" || end="${values[1]}"
+  test debug && echo "s:$start e:$end"
+}
+
+setMultiple(){
+  start=; end=
+  opts=$(zenity --width=500 --forms --title "YT-DL+" \
+    --text "Clip Options" \
+    --add-entry "From Time" \
+    --add-entry "To Time"
+  )
+  values=($( (tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$opts ))
+  test "x${values[0]}" == "xdefault" || start="${values[0]}"
+  test "x${values[1]}" == "xdefault" || end="${values[1]}"
+  test debug && echo "s:$start e:$end"
+}
+
+setResolution(){
+  local out
+  case $ytdl in
+    youtube-dl) out="$(awk '/format /{found=1} found' <<< $($ytdl --list-formats $url || sendMsg "Fail to resolve Url.\nAborting.") | tail +2)";;
+    yt-dlp)     out="$(awk '/ID /{found=1} found' <<< $($ytdl --list-formats $url || sendMsg "Fail to resolve Url.\nAborting.") | tail +3 | awk -F'|' '{print $1}')";;
+  esac
+  format=$(zenity --width=400 --height=400 --list --title="Available Formats" --text="" \
+    --column="Format" --column="Extension" --column="Resolution" "default" "-" "-" $(awk '{print $1,$2,$3}' <<<"$out"))
+}
+
+
+
 trap abort INT TERM EXIT
 
 if [ -f "$fileListDir/res.json" ]; then
   tag=$(jq ".tag" "$fileListDir/res.json" | sed 's/"//g')
-  optTag=
-  keyTag=
 else
   optTag='--add-entry "Tag (required)"'
   keyTag='tag'
@@ -60,33 +96,13 @@ if [ "x$tag" = "x" ]; then
 fi
 
 if [ "x$optRes" = "xlist" ]; then
-
+  setResolution
 fi
 
 if [ "x$optClip" != "xcrop" ]; then
-  start=; end=
-  opts=$(zenity --width=500 --forms --title "YT-DL+" \
-    --text "Clip Options" \
-    --add-entry "From Time" \
-    --add-entry "To Time"
-  )
-  values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$opts))
-  test "x${values[0]}" == "xdefault" || start="${values[0]}"
-  test "x${values[1]}" == "xdefault" || end="${values[1]}"
-  echo "s:$start e:$end"
+  setClip
 elif [ "x$optClip" != "xmultiple" ]; then
-  start=; end=
-  opts=$(zenity --width=500 --forms --title "YT-DL+" \
-    --text "Clip Options" \
-    --add-entry "From Time" \
-    --add-entry "To Time"
-  )
-  values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$opts))
-  test "x${values[0]}" == "xdefault" || start="${values[0]}"
-  test "x${values[1]}" == "xdefault" || end="${values[1]}"
-  echo "s:$start e:$end"
+  setMultiple
 fi
 
 #keys=( url $keyTag start end sfx clipa clipb encoder format)
-
-

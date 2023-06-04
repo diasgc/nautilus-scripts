@@ -1,0 +1,21 @@
+#!/bin/bash
+# diasgc Bash Script
+
+str=$(zenity --width=800 --text-info --title "Paste cookies from Edge page" --editable)
+test -z "$str" && exit 0
+
+dom=$( (awk '{print $3}' | head -n1 | awk -F. '{print $(--NF)}') <<<"$str" )
+out="$dom.cookies"
+
+echo "# Netscape HTTP Cookie File" > $out
+
+echo "$str" | {
+  while IFS= read -r line; do
+    f=($(awk -v OFS="\t" '{print $3,"TRUE",$4,"FALSE",$5,$1,$2}' <<<$line))
+    if [ $(date -d "${f[4]}" +"%s" 2>/dev/null) ]; then
+      f[4]=$(date -d "${f[4]}" +"%s")
+    fi
+    echo "${f[@]}" | sed 's, ,\t,g' >> $out
+  done
+}
+zenity --info --text "Saved to $out"

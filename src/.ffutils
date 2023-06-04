@@ -98,6 +98,23 @@ flacOpts(){
   echo $(parseValues)
 }
 
+vpxOpts(){
+  # see more with ffmpeg -h encoder=libvpx
+  keys=('-quality' '-deadline' '-crf' '-tune' '-arnr_max_frames' '-arnr_strength' '-arnr_type')
+  opts=$(zenity zenity --width=500 --forms --title "VPX" \
+    --text "VPX ${zCodecTitle}" \
+    --add-combo "Quality" --combo-values "default|best|good|realtime" \
+    --add-combo "Deadline" --combo-values "default|best|good|realtime" \
+    --add-combo "CRF" --combo-values "default|$(rangeInt 0 63 2 '|')" \
+    --add-combo "Tune" --combo-values "default|psnr|ssim" \
+    --add-combo "altref NR max frame count" --combo-values "default|$(rangeInt 0 15 1 '|')" \
+    --add-combo "altref NR filter strength" --combo-values "default|" \
+    --add-combo "altref NR filter type" --combo-values "default|1|2|3" \
+    --add-combo "Audio Bitrate" --combo-values "$bitrates" \
+  )
+  values=($(sed 's/ /default/g;s/|/\n/g' <<< $opts))
+  echo $(parseValues)
+}
 aomOpts(){
   keys=('-crf' '-cpu-used' '-usage' '-tune')
   opts=$(zenity zenity --width=500 --forms --title "AOM-AV1" \
@@ -105,7 +122,7 @@ aomOpts(){
     --add-combo "Quality" --combo-values "default|$(rangeInt -1 63 1 '|')" \ 
     --add-combo "CPU used" --combo-values "default|$(rangeInt 0 8 1 '|')" \
     --add-combo "Usage" --combo-values "default|good|realtime|allintra" \
-    --add-combo "Tune" --combo-values "default|0|1" \
+    --add-combo "Tune" --combo-values "default|psnr|ssim" \
   )
   values=($(sed 's/ /default/g;s/|/\n/g' <<< $opts))
   echo $(parseValues)

@@ -1,0 +1,168 @@
+#!/bin/bash
+
+root="$(dirname $(readlink .f ${BASH_SOURCE[0]}))"
+source "$root/.common"
+source "$root/.ffutils"
+
+ytdl="yt-dlp"
+checkDeps ffmpeg youtube-dl
+
+selectResolution(){
+  local out
+  case $ytdl in
+    youtube-dl) out="$(awk '/format /{found=1} found' <<< $($ytdl --list-formats $url || sendMsg "Fail to resolve Url.\nAborting.") | tail +2)";;
+    yt-dlp) out="$(awk '/ID /{found=1} found' <<< $($ytdl --list-formats $url || sendMsg "Fail to resolve Url.\nAborting.") | tail +3 | awk -F'|' '{print $1}')";;
+  esac
+  format=$(zenity --width=400 --height=400 --list --title="Available Formats" --text="" \
+    --column="Format" --column="Extension" --column="Resolution" $(awk '{print $1,$2,$3}' <<<"$out"))
+}
+
+abort(){
+  PID=$(cat $logpid)
+  if [ -e /proc/$PID ]; then
+    kill -SIGKILL $PID
+    rm -f $log $logpid
+    zenity --info --text "$errMsg"
+  fi
+  exit
+}
+
+sendMsg(){
+  echo "# $1"
+  errMsg="$1"
+  exit 1
+}
+
+
+doFFmpeg(){
+  json="$($ytdl -j $url)"
+  if [ -z "$json" ]; then
+    domain=$( (awk -F/ '{print $3}' | awk -F. '{print $(--NF)}') <<<"$url" )
+    cookies="${HOME}/$domain.cookies"
+    if [ ! -f "$cookies" ]; then
+      creds=($(zenity --forms --title="Create user" --text="Insert credetials for $domain" \
+        --add-entry="Username" --add-password="Password" | sed 's,|,\n,g'))
+      test -n "${creds[0]}" && test -n "${creds[1]}" && \
+        wget --keep-session-cookies --save-cookies $cookies "https://$domain?__login=${creds[0]}&__password=${creds[1]}"
+      test -f "$cookies" || errMsg "Fail to download from ($domain) url=$url"
+    fi
+    ytdl="$ytdl --cookies $cookies"
+    json=$($ytdl -j $url)
+    test "x$json" = "x" && errMsg "Fail to download from ($domain) url=$url"
+  fi
+
+  errMsg="Aborted by user."
+  
+  ffurl=$(jq '.url' <<<$json | sed 's/"//g' | head -n1)
+  id=$(jq '.id' <<<$json | sed 's/"//g' | head -n1)
+
+  test -z "$ffurl" && sendMsg "No Url found, aborting."
+  
+  echo "# Found url."
+
+  res=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=nw=1:nk=1 "$ffurl" | head -n1)
+  lab=( SD1 SD2 SD3 SD4 HD FHD UHD 8K )
+  lim=( 240 360 480 720 1080 2146 4320 )
+  r="8K"
+  for i in ${!lab[@]}; do
+   test $res -lt ${lim[$i]} && r=${lab[$i]} && break
+  done
+  
+  if [ -n "${clipa}${clipb}" ]; then
+    test -z "$clipa" && clipa=120
+    test -z "$clipb" && clipb=10
+    a1="-vf select='lt(mod(t\,$clipa)\,$clipb)',setpts=N/FRAME_RATE/TB -af aselect='lt(mod(t\,$clipa)\,$clipb)',asetpts=N/SR/TB ${a1}"
+    sfx="C${sfx}"
+  fi
+
+  meta="-movflags +use_metadata_tags -metadata album_artist=${tag} -metadata url=${url}"
+  tag="${tag}@$(echo "$url" | awk -F/ '{print $3}' | awk -F. '{print substr($(NF-1),1,2)}')"
+  output="${tag}-${id}-${r}${sfx}.mp4"
+  
+  ffcmd="${a0} -i ${ffurl} -progress ${log} ${a1} ${meta} ${output}"
+
+  pfrac=100
+  step=0
+
+  # get duration
+  duration=$(ffprobeDuration "$ffurl")
+  # then adjust duration to start/end values
+  if [ -n "$end" ]; then
+    duration=$(TZ=utc date -d "1970-01-01 00:$end" +'%s')
+  fi  
+  if [ -n "$start" ]; then
+    stt=$(TZ=utc date -d "1970-01-01 00:$start" +'%s')
+    duration=$(( duration - stt ))
+  fi
+
+  # required vars to ffProgress
+  fname="${output}"
+  fsize="-"
+  count=1
+  timeStart=$(date +%s)
+  # note: save pid to file to use it later
+  ffmpeg -hide_banner -v quiet ${ffcmd} & PID=$! && { echo "$PID" > $logpid; } && ffProgress
+}
+
+
+
+
+# Main Program
+
+errMsg="Done!"
+log="/tmp/ytdl.tmp"
+logpid="/tmp/ytdl.pid"
+
+trap abort INT TERM EXIT
+
+if [ -f "$fileListDir/res.json" ]; then
+  tag=$(jq ".tag" "$fileListDir/res.json" | sed 's/"//g')
+  optTag=
+  keyTag=
+else
+  optTag=("--add-entry" "Tag (required)")
+  keyTag='tag'
+fi
+
+# $(x265opts)
+encoderOpts=
+
+
+opts=$(zenity --width=500 --forms --title "Youtube-dl" \
+  --text "Enter URL" \
+  --add-entry "Url (required)" ${optTag[@]} \
+  --add-combo "Resolution" --combo-values "default|available" \
+  --add-entry "From Time" \
+  --add-entry "To Time" \
+  --add-entry "Suffix" \
+  --add-combo "Clip interval (s)" --combo-values "default|10|15|20|30" \
+  --add-combo "Clip length (s)" --combo-values "default|5|7|10|15|20|30" \
+  --add-combo "Debug" --combo-values "default|on" \
+)
+
+values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$opts))
+keys=( url $keyTag res start end sfx clipa clipb debug)
+
+for i in "${!values[@]}"; do
+  echo "Testing ${keys[$i]}=${values[$i]}"
+  test "x${values[$i]}" == "xdefault" || eval "${keys[${i}]}=${values[${i}]}"
+done
+
+test "x$debug" = "xon" && startDebug
+test -z "$url" && sendMsg "Url required! Exiting."
+test -z "$tag" && sendMsg "Tag required! Exiting."
+
+format=
+test "x$res" = "xavailable" && selectResolution
+
+
+test -z "$sfx" && sfx="265"
+encoder="libx265 $encoderOpts -b:a 56k "
+a1="-c:v $encoder"
+test -n "${end}" && a1="-to ${end} ${a1}"
+test -n "${start}" && a1="-ss ${start} ${a1}"
+
+doFFmpeg | zenity --progress --width=500 --title="Downloading" \
+  --text="Initializing please wait..." \
+  --percentage=0 \
+  --auto-close --auto-kill

@@ -1,29 +1,159 @@
 #!/bin/bash
 
+# crop multiple 4-6.5s + 17-26s + 74 to 91s
+#ffmpeg -i video \
+#       -vf "select='between(t,4,6.5)+between(t,17,26)+between(t,74,91)',
+#            setpts=N/FRAME_RATE/TB" \
+#       -af "aselect='between(t,4,6.5)+between(t,17,26)+between(t,74,91)',
+#            asetpts=N/SR/TB" out.mp4
+
+
 root="$(dirname $(readlink .f ${BASH_SOURCE[0]}))"
 source "$root/.common"
 source "$root/.ffutils"
-
-# uncomment for debugging
-# startDebug
-
+startDebug
 ytdl="yt-dlp"
 checkDeps ffmpeg youtube-dl
 
-dialogFormat(){
+ftime2secs(){
+  local o="${1//[^:]}"
+  local n="${#o}"
+  case $n in
+    0) echo "$(TZ=utc date -d "1970-01-01 00:00:$1" +'%s')";;
+    1) echo "$(TZ=utc date -d "1970-01-01 00:$1" +'%s')";;
+    2) echo "$(TZ=utc date -d "1970-01-01 $1" +'%s')";;
+    *) echo "0";;
+  esac
+}
+
+jqs(){
+  echo "$(jq $@ <<<$json | sed 's,",,g')"
+}
+
+jqz(){
+  local out="$(jq $@ <<<$json | sed 's,",,g')"
+  test -z "$out" && out="unknown"
+  echo "$out"
+}
+
+extractJson(){
+  json="$($ytdl -j $url)"
+  if [ -z "$json" ]; then
+    domain=$( (awk -F/ '{print $3}' | awk -F. '{print $(--NF)}') <<<"$url" )
+    cookies="${HOME}/$domain.cookies"
+    if [ ! -f "$cookies" ]; then
+      errMsg "Unable to extract information from $url.\nIt might be unsupported or require $cookies file."
+      exit 1
+    fi
+    ytdl="$ytdl --cookies $cookies"
+    json=$($ytdl -j $url)
+    test "x$json" = "x" && errMsg "Fail to download from ($domain) url=$url with cookies $cookies"
+  fi
+  echo "$json"
+}
+
+selectResolution(){
   local out
   case $ytdl in
     youtube-dl) out="$(awk '/format /{found=1} found' <<< $($ytdl --list-formats $url || sendMsg "Fail to resolve Url.\nAborting.") | tail +2)";;
     yt-dlp) out="$(awk '/ID /{found=1} found' <<< $($ytdl --list-formats $url || sendMsg "Fail to resolve Url.\nAborting.") | tail +3 | awk -F'|' '{print $1}')";;
   esac
   format=$(zenity --width=400 --height=400 --list --title="Available Formats" --text="" \
-    --column="Format" --column="Extension" --column="Resolution" "default" "-" "-" $(awk '{print $1,$2,$3}' <<<"$out"))
+    --column="Format" --column="Extension" --column="Resolution" $(awk '{print $1,$2,$3}' <<<"$out"))
+}
+
+setCropSingle(){
+  local out=$(zenity --width=500 --forms --title "Youtube-dl"  --text "Single clip" --add-entry "From Time" --add-entry "To Time")
+  values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$out))
+  fduration=$duration
+  if [[ "x${values[0]}" != "xdefault" ]]; then
+    cropFilter="-ss ${values[0]}"
+    fduration=$((fduration-values[0]))
+  fi
+  if [[ "x${values[1]}" != "xdefault" ]]; then
+    cropFilter="${cropFilter} -to ${values[1]}"
+    fduration=$((fduration-duration+values[1]))
+  fi
+}
+
+setCropCustom(){
+  # 00:20-00:50+01:10-01:40+04:00-04:40
+  local out=$(zenity --width=800 --entry --text "Enter clip zones (mm1:ss1-mm2:ss2+mm3:ss3-mm4:ss4+...)" --entry-text="mm:ss-mm:ss+mm:ss-mm:ss+...")
+  test -n "$(grep -Po '[^0-9:+-]' <<<$out)" && errMsg "$out contains invalid characters"
+  out=($(sed 's,\+,\n,g' <<<$out))
+  local r, s1, s2, range, filter
+  fduration=0
+  for range in "${out[@]}"; do
+    r=($(sed 's,\-,\n,g' <<<$range))
+    s1=$(ftime2secs ${r[0]})
+    s2=$(ftime2secs ${r[1]})
+    fduration=$((fduration+s2-s1))
+    filter="${filter}+between(t,$s1,$s2)"
+  done
+  filter="${filter:1}"
+  cropFilter="-vf select='$filter',setpts=N/FRAME_RATE/TB -af aselect='$filter',asetpts=N/SR/TB"
+  sfx="C${sfx}"
+}
+
+setCropMultiple(){
+  local out=$(zenity --width=500 --forms --title "Multiple Clips" \
+    --add-combo "Clip interval (s)" --combo-values "default|10|15|20|30" \
+    --add-combo "Clip length (s)" --combo-values "default|5|7|10|15|20|30")
+  values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$out))
+  clipa=120
+  clipb=10
+  test "x${values[0]}" = "xdefault" || clipa="${values[0]}"
+  test "x${values[1]}" = "xdefault" || clipb="${values[1]}"
+  cropFilter="-vf select='lt(mod(t\,$clipa)\,$clipb)',setpts=N/FRAME_RATE/TB -af aselect='lt(mod(t\,$clipa)\,$clipb)',asetpts=N/SR/TB"
+  sfx="C${sfx}"
+  fduration=$((duration/clipa*clipb))
+}
+
+getResTag(){
+  local h=$1
+  local lab=( SD1 SD2 SD3 SD4 HD FHD UHD 8K )
+  local lim=( 240 360 480 720 1080 2146 4320 )
+  local r="8K"
+  for i in ${!lab[@]}; do
+   test $h -lt ${lim[$i]} && r=${lab[$i]} && break
+  done
+  echo "$r"
+}
+
+getFormats(){
+  # count entries
+  local n=$(jq -c '.formats[]' <<<$json | wc -l)
+  local jres, jext, jid, jp, resTags, zlist
+  # loop entries
+  for (( i=0; i<$n ; i=i+1 )); do 
+    jid="$(jqs -c '.formats['$i'].format_id')"
+    jres="$(jqs -c '.formats['$i'].resolution')"
+    jext="$(jqs -c '.formats['$i'].ext')"
+    #jh="$(jqs -c '.formats['$i'].height')"
+    resTags+=($(getResTag $(jqs -c '.formats['$i'].height')))
+    jp="$(jqs -c '.formats['$i'].protocol')"
+    jsz="$(jqs -c '.formats['$i'].filesize_approx' | numfmt --to=si --suffix=B)"
+    test -z "$jsz" && jsz="unknown"
+    zlist+=("$i" "$jid" "$jext" "$jres" "${resTags[$i]}" "$jsz" "$jp")
+  done
+  local si=$(zenity --width=800 --height=400 --list --title="Available Formats" --text="" \
+    --column="i" --column="Format" --column="Extension" --column="Resolution" --column="tag" --column="Size" --column="Protocol" ${zlist[@]})
+  ffurl="$(jqs -c '.formats['$si'].url')"
+  format="$(jqs -c '.formats['$si'].format_id')"
+  jext="$(jqs -c '.formats['$si'].ext')"
+  resTag="${resTags[$si]}"
+  #local prot="$(jqs -c '.formats['$si'].protocol')"
+  #local fsize="$(jqz -c '.formats['$si'].filesize_approx' | numfmt --to=si --suffix=B)"
+  #zenity --width=400 --height=400 --list --title="Selected" --text="" --column="key" --column="value" "format" "$format" "url" "$ffurl" "extension" "$jext" "res" "$resTag" "protocol" "$prot" "size" "$fsize"
+  #exit 1
 }
 
 abort(){
+  # get pid previously saved in file
+  PID=$(cat $logpid)
   if [ -e /proc/$PID ]; then
-    killall ffmpeg
-    rm -f $log
+    kill -SIGKILL $PID
+    rm -f $log $logpid
     zenity --info --text "$errMsg"
   fi
   exit
@@ -37,58 +167,45 @@ sendMsg(){
 
 
 doFFmpeg(){
-  json="$($ytdl -j $url)"
+
+  test -z "$ffurl" && ffurl=$($ytdl -f $format -g $url)
+  test -z "$ffurl" && sendMsg "No Url found, aborting."
+  echo "# Found url."
   errMsg="Aborted by user."
   
-  ffurl=$(jq '.url' <<<$json | sed 's/"//g' | head -n1)
-  id=$(jq '.id' <<<$json | sed 's/"//g' | head -n1)
-
-  test -z "$ffurl" && sendMsg "No Url found, aborting."
-  
-  echo "# Found url."
-
-  res=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=nw=1:nk=1 "$ffurl" | head -n1)
-  lab=( SD1 SD2 SD3 SD4 HD FHD UHD 8K )
-  lim=( 240 360 480 720 1080 2146 4320 )
-  r="8K"
-  for i in ${!lab[@]}; do
-   test $res -lt ${lim[$i]} && r=${lab[$i]} && break
-  done
-  
-  if [ -n "${clipa}${clipb}" ]; then
-    test -z "$clipa" && clipa=120
-    test -z "$clipb" && clipb=10
-    a1="-vf select='lt(mod(t\,$clipa)\,$clipb)',setpts=N/FRAME_RATE/TB -af aselect='lt(mod(t\,$clipa)\,$clipb)',asetpts=N/SR/TB ${a1}"
-    sfx="C${sfx}"
+  id=$(jqs '.id' | head -n1)
+  if [ -z "$fduration" ]; then
+    duration=$(jqs '.duration')
+    # get duration from ffprobe if not found in json
+    test -z "$duration" && duration=$(ffprobeDuration "$ffurl")
+    test -z "$duration" && errMsg "No duration defined for $url!"
+  else
+    duration=$fduration
   fi
+  
+  test -z "$resTag" && getResTag $(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=nw=1:nk=1 "$ffurl" | head -n1)
 
   meta="-movflags +use_metadata_tags -metadata album_artist=${tag} -metadata url=${url}"
   tag="${tag}@$(echo "$url" | awk -F/ '{print $3}' | awk -F. '{print substr($(NF-1),1,2)}')"
-  output="${tag}-${id}-${sfx}.mp4"
+  output="${tag}-${id}-${resTag}${sfx}.${ext}"
   
-  log="/tmp/yt-dl.tmp"
   ffcmd="${a0} -i ${ffurl} -progress ${log} ${a1} ${meta} ${output}"
 
+  # required vars to ffProgress
   pfrac=100
   step=0
-
-  # get duration
-  duration=$(ffprobeDuration "$ffurl")
-  # then adjust duration to start/end values
-  if [ -n "$end" ]; then
-    duration=$(TZ=utc date -d "1970-01-01 00:$end" +'%s')
-  fi  
-  if [ -n "$start" ]; then
-    stt=$(TZ=utc date -d "1970-01-01 00:$start" +'%s')
-    duration=$(( duration - stt ))
-  fi
-
-  # required vars to ffProgress
   fname="${output}"
   fsize="-"
   count=1
   timeStart=$(date +%s)
-  ffmpeg -hide_banner -v quiet ${ffcmd} & PID=$! && ffProgress
+  
+  # are we testing?
+  if [ "x$debug" = "xtest" ]; then
+    errMsg "command: ${ffcmd}"
+  else
+    # note: save pid to file to use it later
+    ffmpeg -hide_banner -v quiet ${ffcmd} & PID=$! && { echo "$PID" > $logpid; } && ffProgress
+  fi
 }
 
 
@@ -97,6 +214,11 @@ doFFmpeg(){
 # Main Program
 
 errMsg="Done!"
+log="/tmp/ytdl.tmp"
+logpid="/tmp/ytdl-$(date +'%s').pid"
+ext="mp4"
+encoder="libx265 -b:a 56k "
+
 trap abort INT TERM EXIT
 
 if [ -f "$fileListDir/res.json" ]; then
@@ -108,38 +230,57 @@ else
   keyTag='tag'
 fi
 
-# $(x265opts)
-encoderOpts=
-
-
 opts=$(zenity --width=500 --forms --title "Youtube-dl" \
   --text "Enter URL" \
   --add-entry "Url (required)" ${optTag[@]} \
-  --add-entry "From Time" \
-  --add-entry "To Time" \
+  --add-combo "Resolution" --combo-values "default|available" \
   --add-entry "Suffix" \
-  --add-combo "Clip interval (s)" --combo-values "default|10|15|20|30" \
-  --add-combo "Clip length (s)" --combo-values "default|5|7|10|15|20|30"
+  --add-combo "Crop mode" --combo-values "default|crop|multiple|custom" \
+  --add-combo "Encoder and Options (default x265)" --combo-values "default|x265|vpx" \
+  --add-combo "Debug" --combo-values "default|on|test" \
 )
 
+
 values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$opts))
-keys=( url $keyTag start end sfx clipa clipb )
+keys=( url $keyTag res sfx cropmode encopts debug)
 
 for i in "${!values[@]}"; do
   echo "Testing ${keys[$i]}=${values[$i]}"
   test "x${values[$i]}" == "xdefault" || eval "${keys[${i}]}=${values[${i}]}"
 done
 
+test "x$debug" = "xon" && startDebug
 test -z "$url" && sendMsg "Url required! Exiting."
 test -z "$tag" && sendMsg "Tag required! Exiting."
-format=
 test -z "$sfx" && sfx="265"
-encoder="libx265 $encoderOpts -b:a 56k "
+
+# get info data
+json="$(extractJson)" | zenity --progress --width=500 \
+  --title="Downloading" --text="Extracting data, please wait..." \
+  --percentage=0 --auto-close --auto-kill
+   
+duration=$(jqs '.duration')
+
+case "$cropmode" in
+  crop) setCropSingle;;
+  multiple) setCropMultiple;;
+  custom) setCropCustom;;
+esac
+
+case "$encopts" in
+  x265) encoder="libx265 $(x265opts) "; ext="mp4";;
+  vpx) encoder="libvpx $(vpxOpts) "; ext="webm";;
+esac
+
+format=
+test "x$res" = "xavailable" && getFormats
+
 a1="-c:v $encoder"
-test -n "${end}" && a1="-to ${end} ${a1}"
-test -n "${start}" && a1="-ss ${start} ${a1}"
+#test -n "${end}" && a1="-to ${end} ${a1}"
+#test -n "${start}" && a1="-ss ${start} ${a1}"
+test -n "$cropFilter" && a1="${cropFilter} ${a1}"
 
 doFFmpeg | zenity --progress --width=500 --title="Downloading" \
-  --text="Initializing please wait..." \
+  --text="Starting..." \
   --percentage=0 \
   --auto-close --auto-kill

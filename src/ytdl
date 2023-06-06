@@ -10,7 +10,14 @@ checkDeps ffmpeg youtube-dl
 ftime2secs(){
   local o="${1//[^:]}"
   local n="${#o}"
-  local s=$((3-n))
+  # local s=$((2-n))
+  # if [ s -ge 0 ]; then
+  #  s=$(printf "%${s}s")
+  #  s="1970-01-01 ${s// /00:}$1"
+  #  echo "$(TZ=utc date -d "$s" +'%s')"
+  #else
+  #  echo "0"
+  #fi
   case $n in
     0) echo "$(TZ=utc date -d "1970-01-01 00:00:$1" +'%s')";;
     1) echo "$(TZ=utc date -d "1970-01-01 00:$1" +'%s')";;

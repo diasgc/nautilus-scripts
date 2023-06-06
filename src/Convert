@@ -10,14 +10,14 @@ source "$root/.ffutils"
 checkDeps ffmpeg libheif-examples inkscape
 
 log=/tmp/ffmpeg.log
-
+logpid="/tmp/convert-$(date +'%s').pid"
 
 do-ffmpeg(){
   timeStart=$(date +%s)
   duration=$(ffprobeDuration "$file")
   fname=$(basename "$file")
   fsize=$(fileSize "$file")
-  ffmpeg ${ffopt1} -i "$file" -progress ${log} ${ffopt2} ${ffEncoder} "${file%.*}${ffSufix}.${ffFormat}" & PID=$! && ffProgress
+  ffmpeg ${ffopt1} -i "$file" -progress ${log} ${ffopt2} ${ffEncoder} "${file%.*}${ffSufix}.${ffFormat}" & PID=$! && { echo "$PID" > $logpid; } && ffProgress
   #rm -f $log
 }
 
@@ -29,12 +29,14 @@ do-heif(){
 }
 
 abort(){
-  sleep 2
+  PID=$(cat $logpid)
+  local dtype="--info"
   if [ -e /proc/$PID ]; then
-    killall ffmpeg
-    rm -f $log
-    zenity --error --text "$errMsg"
+    kill -SIGKILL $PID
+    dtype="--error"
   fi
+  rm -f $log $logpid
+  zenity $dtype --text "$errMsg"
   endDebug
   exit
 }

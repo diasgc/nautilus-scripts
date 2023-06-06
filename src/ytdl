@@ -1,13 +1,5 @@
 #!/bin/bash
 
-# crop multiple 4-6.5s + 17-26s + 74 to 91s
-#ffmpeg -i video \
-#       -vf "select='between(t,4,6.5)+between(t,17,26)+between(t,74,91)',
-#            setpts=N/FRAME_RATE/TB" \
-#       -af "aselect='between(t,4,6.5)+between(t,17,26)+between(t,74,91)',
-#            asetpts=N/SR/TB" out.mp4
-
-
 root="$(dirname $(readlink .f ${BASH_SOURCE[0]}))"
 source "$root/.common"
 source "$root/.ffutils"
@@ -18,6 +10,7 @@ checkDeps ffmpeg youtube-dl
 ftime2secs(){
   local o="${1//[^:]}"
   local n="${#o}"
+  local s=$((3-n))
   case $n in
     0) echo "$(TZ=utc date -d "1970-01-01 00:00:$1" +'%s')";;
     1) echo "$(TZ=utc date -d "1970-01-01 00:$1" +'%s')";;
@@ -27,7 +20,7 @@ ftime2secs(){
 }
 
 jqs(){
-  echo "$(jq $@ <<<$json | sed 's,",,g')"
+  echo "$(jq -r $@ <<<$json)"
 }
 
 jqz(){
@@ -49,7 +42,6 @@ extractJson(){
     json=$($ytdl -j $url)
     test "x$json" = "x" && errMsg "Fail to download from ($domain) url=$url with cookies $cookies"
   fi
-  echo "$json"
 }
 
 selectResolution(){
@@ -64,15 +56,18 @@ selectResolution(){
 
 setCropSingle(){
   local out=$(zenity --width=500 --forms --title "Youtube-dl"  --text "Single clip" --add-entry "From Time" --add-entry "To Time")
+  local s
   values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$out))
   fduration=$duration
   if [[ "x${values[0]}" != "xdefault" ]]; then
+    s=$(ftime2secs ${values[0]})
     cropFilter="-ss ${values[0]}"
-    fduration=$((fduration-values[0]))
+    fduration=$((fduration-s))
   fi
   if [[ "x${values[1]}" != "xdefault" ]]; then
+    s=$(ftime2secs ${values[1]})
     cropFilter="${cropFilter} -to ${values[1]}"
-    fduration=$((fduration-duration+values[1]))
+    fduration=$((fduration-duration+s))
   fi
 }
 
@@ -142,20 +137,25 @@ getFormats(){
   format="$(jqs -c '.formats['$si'].format_id')"
   jext="$(jqs -c '.formats['$si'].ext')"
   resTag="${resTags[$si]}"
-  #local prot="$(jqs -c '.formats['$si'].protocol')"
-  #local fsize="$(jqz -c '.formats['$si'].filesize_approx' | numfmt --to=si --suffix=B)"
-  #zenity --width=400 --height=400 --list --title="Selected" --text="" --column="key" --column="value" "format" "$format" "url" "$ffurl" "extension" "$jext" "res" "$resTag" "protocol" "$prot" "size" "$fsize"
-  #exit 1
+  if [ "x$debug" = "xtest" ]; then
+    local prot="$(jqs -c '.formats['$si'].protocol')"
+    local fsize="$(jqz -c '.formats['$si'].filesize_approx' | numfmt --to=si --suffix=B)"
+    zenity --width=400 --height=400 --list --title="Selected" --text="" --column="key" --column="value" "format" "$format" "url" "$ffurl" "extension" "$jext" "res" "$resTag" "protocol" "$prot" "size" "$fsize"
+    exit 1
+  fi
 }
 
 abort(){
   # get pid previously saved in file
   PID=$(cat $logpid)
+  local dtype="--info"
   if [ -e /proc/$PID ]; then
     kill -SIGKILL $PID
-    rm -f $log $logpid
-    zenity --info --text "$errMsg"
+    dtype="--error"
   fi
+  rm -f $log $logpid
+  zenity $dtype --text "$errMsg"
+  endDebug
   exit
 }
 
@@ -167,8 +167,8 @@ sendMsg(){
 
 
 doFFmpeg(){
-
-  test -z "$ffurl" && ffurl=$($ytdl -f $format -g $url)
+  test -z "$format" || format="-f $format"
+  test -z "$ffurl" && ffurl=$($ytdl $format -g $url)
   test -z "$ffurl" && sendMsg "No Url found, aborting."
   echo "# Found url."
   errMsg="Aborted by user."
@@ -183,7 +183,7 @@ doFFmpeg(){
     duration=$fduration
   fi
   
-  test -z "$resTag" && getResTag $(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=nw=1:nk=1 "$ffurl" | head -n1)
+  test -z "$resTag" && resTag=$(getResTag $(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=nw=1:nk=1 "$ffurl" | head -n1))
 
   meta="-movflags +use_metadata_tags -metadata album_artist=${tag} -metadata url=${url}"
   tag="${tag}@$(echo "$url" | awk -F/ '{print $3}' | awk -F. '{print substr($(NF-1),1,2)}')"
@@ -255,29 +255,28 @@ test -z "$tag" && sendMsg "Tag required! Exiting."
 test -z "$sfx" && sfx="265"
 
 # get info data
-json="$(extractJson)" | zenity --progress --width=500 \
-  --title="Downloading" --text="Extracting data, please wait..." \
-  --percentage=0 --auto-close --auto-kill
+extractJson
+# | zenity --progress --width=500 \
+#  --title="Downloading" --text="Extracting data, please wait..." \
+#  --percentage=0 --auto-close --auto-kill
    
 duration=$(jqs '.duration')
 
 case "$cropmode" in
-  crop) setCropSingle;;
+  crop)     setCropSingle;;
   multiple) setCropMultiple;;
-  custom) setCropCustom;;
+  custom)   setCropCustom;;
 esac
 
 case "$encopts" in
   x265) encoder="libx265 $(x265opts) "; ext="mp4";;
-  vpx) encoder="libvpx $(vpxOpts) "; ext="webm";;
+  vpx)  encoder="libvpx $(vpxOpts) "; ext="webm";;
 esac
 
 format=
 test "x$res" = "xavailable" && getFormats
 
 a1="-c:v $encoder"
-#test -n "${end}" && a1="-to ${end} ${a1}"
-#test -n "${start}" && a1="-ss ${start} ${a1}"
 test -n "$cropFilter" && a1="${cropFilter} ${a1}"
 
 doFFmpeg | zenity --progress --width=500 --title="Downloading" \

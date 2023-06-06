@@ -3,7 +3,8 @@
 root="$(dirname $(readlink .f ${BASH_SOURCE[0]}))"
 source "$root/.common"
 source "$root/.ffutils"
-startDebug
+
+# startDebug
 ytdl="yt-dlp"
 checkDeps ffmpeg youtube-dl
 
@@ -64,7 +65,7 @@ selectResolution(){
 setCropSingle(){
   local out=$(zenity --width=500 --forms --title "Youtube-dl"  --text "Single clip" --add-entry "From Time" --add-entry "To Time")
   local s
-  values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$out))
+  values=($( (tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$out))
   fduration=$duration
   if [[ "x${values[0]}" != "xdefault" ]]; then
     s=$(ftime2secs ${values[0]})
@@ -101,7 +102,7 @@ setCropMultiple(){
   local out=$(zenity --width=500 --forms --title "Multiple Clips" \
     --add-combo "Clip interval (s)" --combo-values "default|10|15|20|30" \
     --add-combo "Clip length (s)" --combo-values "default|5|7|10|15|20|30")
-  values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$out))
+  values=($( (tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$out) )
   clipa=120
   clipb=10
   test "x${values[0]}" = "xdefault" || clipa="${values[0]}"
@@ -159,11 +160,12 @@ abort(){
   if [ -e /proc/$PID ]; then
     kill -SIGKILL $PID
     dtype="--error"
+    errMsg="Aborted by user"
   fi
   rm -f $log $logpid
   zenity $dtype --text "$errMsg"
   endDebug
-  exit
+  exit 0
 }
 
 sendMsg(){
@@ -178,7 +180,7 @@ doFFmpeg(){
   test -z "$ffurl" && ffurl=$($ytdl $format -g $url)
   test -z "$ffurl" && sendMsg "No Url found, aborting."
   echo "# Found url."
-  errMsg="Aborted by user."
+  errMsg="Done!"
   
   id=$(jqs '.id' | head -n1)
   if [ -z "$fduration" ]; then

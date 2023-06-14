@@ -10,8 +10,7 @@
 # ln -s src/Convert... ~/.local/share/nautilus/scripts/Convert...
 nautDir="$HOME/.local/share/nautilus/scripts/"
 srcDir="$(pwd)/src/"
-for f in $srcDir/*; do
-    echo "$f"
-    fn=$(basename "$f")
-    ln -s "$f" "$nautDir/$fn"
+scriptList=("Convert" "Metadata" "ytdl")
+for f in ${scriptList[@]}; do
+    ln -s "$srcDir/$f" "$nautDir/$fn"
 done

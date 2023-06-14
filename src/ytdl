@@ -6,7 +6,7 @@ source "$root/.ffutils"
 
 # startDebug
 ytdl="yt-dlp"
-checkDeps ffmpeg youtube-dl
+checkDeps ffmpeg $ytdl
 
 ftime2secs(){
   local o="${1//[^:]}"
@@ -35,6 +35,37 @@ jqz(){
   local out="$(jq $@ <<<$json | sed 's,",,g')"
   test -z "$out" && out="unknown"
   echo "$out"
+}
+
+showExtras(){
+  local extra=$(zenity --info --title "Extras" --text "Select 'cookies' to enter cookie text from browser\n'update' to update $ytdl\n" \
+    --extra-button "cookies" --extra-button "update")
+  case $extra in
+    cookies) getCookies;;
+    update) sudo yt-dlp --update-to nightly && errMsg="Updated!";;
+  esac
+  exit
+}
+
+getCookies(){
+  local str=$(zenity --width=800 --text-info --title "Paste cookies from Edge page" --editable)
+  test -z "$str" && exit 0
+
+  local dom=$( (awk '{print $3}' | head -n1 | awk -F. '{print $(--NF)}') <<<"$str" )
+  local out="$dom.cookies"
+
+  echo "# Netscape HTTP Cookie File" > $out
+
+  echo "$str" | {
+    while IFS= read -r line; do
+      f=($(awk -v OFS="\t" '{print $3,"TRUE",$4,"FALSE",$5,$1,$2}' <<<$line))
+      if [ $(date -d "${f[4]}" +"%s" 2>/dev/null) ]; then
+        f[4]=$(date -d "${f[4]}" +"%s")
+      fi
+      echo "${f[@]}" | sed 's, ,\t,g' >> $out
+    done
+  }
+  errMsg="Saved to $out"
 }
 
 extractJson(){
@@ -177,7 +208,7 @@ sendMsg(){
 
 doFFmpeg(){
   test -z "$format" || format="-f $format"
-  test -z "$ffurl" && ffurl=$($ytdl $format -g $url)
+  test -z "$ffurl" && ffurl=$($ytdl $format -g $url | head -n1)
   test -z "$ffurl" && sendMsg "No Url found, aborting."
   echo "# Found url."
   errMsg="Done!"
@@ -247,8 +278,10 @@ opts=$(zenity --width=500 --forms --title "Youtube-dl" \
   --add-combo "Crop mode" --combo-values "default|crop|multiple|custom" \
   --add-combo "Encoder and Options (default x265)" --combo-values "default|x265|vpx" \
   --add-combo "Debug" --combo-values "default|on|test" \
+  --extra-button "Extras" \
 )
 
+test "x$opts" = "xExtras" && showExtras
 
 values=($((tr '|' '\n' | sed 's,^[ ]*$,default,g') <<<$opts))
 keys=( url $keyTag res sfx cropmode encopts debug)
